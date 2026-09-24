@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant J as JIRA
+    participant O as Omnigent
+    participant H as Holodeck
+    participant C as Coding Agent
+    participant G as GitHub/CI
+    participant P as Human
+
+    J->>O: Ticket created
+    Note over O: 1. Intake / select ticket
+    O->>H: 2. Acquire env
+    Note over H: 3. Strike workspace<br/>(golden → CoW clone,<br/>warm seeded DB)
+    H->>C: Handle (exec + preview)
+    Note over C: 4. Read ticket + code,<br/>write change
+    C->>H: 5. Readiness / seed proof
+    H->>C: Preview
+    Note over C: Run migrate + tests
+    C->>G: 6. Push branch → open PR
+    P->>H: 7. Extend lease
+    P->>G: Review preview, CI checks, approve
+    P->>G: Merge
+    G->>H: 9. Destroy (on merge)
+    H->>O: 10. Report
+    O->>J: Report
