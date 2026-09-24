@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "holodeck-control-plane"
+version = "0.1.0"
+description = "Holodeck thin lease API — a WorkspaceProvider seam over the CoW workspace mechanism (Compose now, EKS later)."
+authors = ["Holodeck Hackathon <eng@junipersquare.com>"]
+readme = "README.md"
+packages = [{ include = "holodeck" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.111"
+uvicorn = { extras = ["standard"], version = "^0.30" }
+pydantic = "^2.7"
+pyyaml = "^6.0"   # onboarding/recon.py parses a candidate app's compose file
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2"
+httpx = "^0.27"
+
+[tool.poetry.scripts]
+holodeck-api = "holodeck.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

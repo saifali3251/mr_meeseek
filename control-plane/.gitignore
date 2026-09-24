@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+poetry.lock
+uv.lock
+holodeck.env
+holodeck.db
+*.db

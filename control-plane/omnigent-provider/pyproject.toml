@@ -1,0 +1,26 @@
+[project]
+name = "omnigent-community-sandbox-holodeck"
+version = "0.1.4"
+description = "Holodeck sandbox provider for Omnigent — a lease on a warm, seeded app stack instead of a blank box."
+requires-python = ">=3.12"
+# No runtime deps beyond omnigent itself (provided by the host env) — the
+# launcher talks to the control plane over stdlib urllib.
+
+[project.entry-points."omnigent.sandbox_providers"]
+holodeck = "omnigent.community.sandbox.holodeck.plugin:get_contribution"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# ship our namespace subpackage as-is (no omnigent/__init__.py of our own);
+# it merges into the installed omnigent.community.sandbox namespace.
+only-include = ["omnigent"]
+
+# Ship sitecustomize.py at the wheel ROOT so a `pip install --target /opt/holodeck`
+# lands it at /opt/holodeck/sitecustomize.py — auto-loaded at interpreter startup
+# (given PYTHONPATH=/opt/holodeck) to enable holodeck as a MANAGED sandbox with no
+# server code / command / config changes. Guarded + no-op outside an omnigent env.
+[tool.hatch.build.targets.wheel.force-include]
+"sitecustomize.py" = "sitecustomize.py"
