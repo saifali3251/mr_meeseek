@@ -108,7 +108,7 @@ services:
       pip install --quiet --pre 'omnigent==0.8.2' &&
       pip install --quiet --upgrade 'websockets==14.2' &&
       (command -v claude >/dev/null || (mkdir -p \"$$HOME/.local\" && node_arch=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') && curl -sSL \"https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-$$node_arch.tar.gz\" | tar -xz -C \"$$HOME/.local\" --strip-components=1 && npm install -g --quiet @anthropic-ai/claude-code)) &&
-      (command -v agy >/dev/null || (curl -fsSL https://antigravity.google/cli/install.sh | bash && mkdir -p \"$$HOME/.gemini/antigravity-cli\" && echo '{\"modelProvider\":\"gemini\"}' > \"$$HOME/.gemini/antigravity-cli/settings.json\")) &&
+      (git config --global --add safe.directory '*' || true) &&
       touch /tmp/.holo-backend-ready &&
       alembic upgrade head &&
       exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
