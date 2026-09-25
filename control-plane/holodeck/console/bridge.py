@@ -137,6 +137,18 @@ def _wrap_prompt(spec: Optional[str], key: str, prefix: str) -> str:
     return _BEHAVIOR_PREAMBLE.format(key=key, prefix=prefix) + body
 
 
+def _is_bot_comment(body: str) -> bool:
+    """Returns True if the comment is authored by our own bot automation.
+    Recognizes all bot notification headers regardless of author account ID,
+    preventing infinite feedback loops when the human reporter and the API
+    token belong to the same Jira user."""
+    b = (body or "").strip()
+    if b.startswith(("/", "!", "#")):
+        return False
+    lower = b.lower()
+    return lower.startswith(("holodeck", "meeseek"))
+
+
 class JiraBridge:
     def __init__(self, manager: ConsoleManager, jira: JiraClient, cfg) -> None:
         self.manager = manager
@@ -149,6 +161,7 @@ class JiraBridge:
         # local edge-trigger, same idea as TaskRecord.halted: nag once, not on
         # a loop. Lost on restart, which just means one extra nag — acceptable.
         self._repo_blocked: set[str] = set()
+        self._bot_comment_ids: set[str] = set()
 
     def _say(self, key: str, body: str, *,
              links: Optional[list[tuple[str, str]]] = None) -> Optional[str]:
@@ -156,7 +169,16 @@ class JiraBridge:
         — a Jira outage must not fail the webhook or the action that already
         succeeded."""
         try:
-            return self.jira.post_comment(key, body, links=links)
+            cid = self.jira.post_comment(key, body, links=links)
+            if cid:
+                cid_str = str(cid)
+                self._bot_comment_ids.add(cid_str)
+                rec = self.manager.store.get(key)
+                if rec is not None:
+                    if rec.jira_watermark is None or _as_int(cid_str) > _as_int(rec.jira_watermark):
+                        rec.jira_watermark = cid_str
+                        self.manager.store.put(rec)
+            return cid
         except Exception:
             log.exception("jira post_comment failed for %s", key)
             return None
@@ -177,6 +199,8 @@ class JiraBridge:
 
         if event.kind == "comment":
             body = event.body.strip()
+            if _is_bot_comment(body):
+                return "ignored (bot comment)"
             matched_prefix = None
             for p in (self.prefix, "/meeseek", "/holodeck"):
                 if p and body.startswith(p):
@@ -484,6 +508,7 @@ class JiraBridge:
                 cid = self._say(rec.ticket, f"Holodeck 💬 {rec.stable_agent_message}")
                 if cid is not None:
                     rec.posted_agent_message = rec.stable_agent_message
+                    rec.jira_watermark = str(cid)
                     self.manager.store.put(rec)
             self._check_halt(rec)
             if rec.waiting and not rec.notified_waiting:
@@ -571,8 +596,15 @@ class JiraBridge:
             wm = _as_int(rec.jira_watermark)
             replies = [c for c in comments
                        if _as_int(c.get("id")) > wm
-                       and c.get("author") != self.cfg.jira_bot_account]
+                       and str(c.get("id")) not in self._bot_comment_ids
+                       and (not self.cfg.jira_bot_account or c.get("author") != self.cfg.jira_bot_account)
+                       and not _is_bot_comment(c.get("body") or "")]
             if not replies:
+                if comments:
+                    max_id = max(_as_int(c.get("id")) for c in comments)
+                    if max_id > wm:
+                        rec.jira_watermark = str(max_id)
+                        self.manager.store.put(rec)
                 continue
             latest = max(replies, key=lambda c: _as_int(c.get("id")))  # the CURRENT answer
             body = (latest.get("body") or "").strip()
