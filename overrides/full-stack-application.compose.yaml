@@ -104,7 +104,7 @@ services:
     command: >
       sh -c "
       export PATH=\"$$HOME/.local/bin:$$PATH\" &&
-      (command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq --no-install-recommends curl)) &&
+      (command -v tmux >/dev/null && command -v git >/dev/null && command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq --no-install-recommends curl tmux git)) &&
       pip install --quiet --pre 'omnigent==0.8.2' &&
       pip install --quiet --upgrade 'websockets==14.2' &&
       (command -v claude >/dev/null || (mkdir -p \"$$HOME/.local\" && node_arch=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') && curl -sSL \"https://nodejs.org/dist/v22.11.0/node-v22.11.0-linux-$$node_arch.tar.gz\" | tar -xz -C \"$$HOME/.local\" --strip-components=1 && npm install -g --quiet @anthropic-ai/claude-code)) &&
