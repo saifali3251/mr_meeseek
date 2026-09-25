@@ -251,14 +251,23 @@ class HttpOmnigentClient:
         return tok
 
     def _ensure_agent(self) -> Optional[str]:
-        """Agent id to bind the session to: HOLODECK_OMNIGENT_AGENT if set, else the
-        first agent from GET /v1/agents (matches the smoke script's auto-discovery)."""
-        if self.agent:
-            return self.agent
+        """Agent id to bind the session to: HOLODECK_OMNIGENT_AGENT if set (id or
+        name substring, e.g. 'claude'), else the first agent from GET /v1/agents
+        (matches the smoke script's auto-discovery)."""
         d = self._req("GET", "/v1/agents")
         agents = d.get("data", d) if isinstance(d, dict) else d
-        if isinstance(agents, list) and agents and isinstance(agents[0], dict):
-            self.agent = agents[0].get("id")  # cache for later calls
+        if isinstance(agents, list) and agents:
+            if self.agent:
+                # Match exact id or name substring (case-insensitive)
+                for a in agents:
+                    if isinstance(a, dict):
+                        aid = a.get("id") or ""
+                        aname = (a.get("name") or "").lower()
+                        if aid == self.agent or self.agent.lower() in aname:
+                            self.agent = aid
+                            return self.agent
+            elif isinstance(agents[0], dict):
+                self.agent = agents[0].get("id")
         return self.agent
 
     def _req(self, method: str, path: str, body: Optional[dict] = None, *, _retry: bool = True):

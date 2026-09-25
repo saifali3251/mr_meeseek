@@ -177,8 +177,13 @@ class JiraBridge:
 
         if event.kind == "comment":
             body = event.body.strip()
-            if body.startswith(self.prefix):
-                return self._command(event.issue_key, body[len(self.prefix):].strip())
+            matched_prefix = None
+            for p in (self.prefix, "/meeseek", "/holodeck"):
+                if p and body.startswith(p):
+                    matched_prefix = p
+                    break
+            if matched_prefix:
+                return self._command(event.issue_key, body[len(matched_prefix):].strip())
             # a plain comment is a reply iff there's an active task for the ticket
             rec = self.manager.store.get(event.issue_key)
             if rec is not None and not rec.is_terminal:
