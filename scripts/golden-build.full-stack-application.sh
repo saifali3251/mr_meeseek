@@ -52,6 +52,7 @@ if [[ $DO_CHECKOUT -eq 1 ]]; then
     if [[ -d "$dest/.git" ]]; then
       log "refreshing $repo ..."
       git -C "$dest" fetch --quiet --depth 1 origin || warn "fetch failed for $repo (offline?)"
+      git -C "$dest" reset --hard FETCH_HEAD >/dev/null 2>&1 || warn "reset to FETCH_HEAD failed for $repo"
     else
       log "cloning $repo ..."
       git clone --quiet --depth 1 "$HOLO_GIT_BASE/$repo.git" "$dest" \
