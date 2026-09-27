@@ -3,6 +3,8 @@ LeaseService, never to a substrate."""
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import shlex
 from typing import Optional
@@ -11,6 +13,7 @@ from fastapi import (Depends, FastAPI, Header, HTTPException, Query, Request,
                     Response, WebSocket, WebSocketDisconnect)
 
 from holodeck.config import Config
+from holodeck.golden_sync import GoldenSyncManager
 from holodeck.models import Lease, LeaseStatus
 from holodeck.onboarding.pages import build_onboarding_pages_router
 from holodeck.onboarding.routes import build_onboarding_api_router
@@ -47,8 +50,14 @@ def _lease_response(l: Lease) -> LeaseResponse:
 
 def create_app(cfg: Config, service: LeaseService,
               teams: Optional[TeamStore] = None,
-              onboarding: Optional[OnboardingService] = None) -> FastAPI:
+              onboarding: Optional[OnboardingService] = None,
+              golden_sync: Optional[GoldenSyncManager] = None) -> FastAPI:
     app = FastAPI(title="Holodeck Lease API", version="0.1.0")
+
+    if golden_sync is None:
+        pool = getattr(service.provider, "pool", None)
+        golden_sync = GoldenSyncManager(cfg, pool=pool)
+    app.state.golden_sync = golden_sync
 
     def auth(authorization: Optional[str] = Header(default=None)) -> None:
         # issue #2: shared-token check as a dependency (Phase 2, not Phase 5).
@@ -98,6 +107,79 @@ def create_app(cfg: Config, service: LeaseService,
             if cfg.port_pool_start <= port <= cfg.port_pool_end:
                 return Response(status_code=200, content="OK")
         return Response(status_code=403, content="Domain not allowed")
+
+    @app.post("/webhooks/github")
+    async def github_webhook(
+        request: Request,
+        app_param: Optional[str] = Query(None, alias="app"),
+    ) -> dict:
+        """GitHub push webhook endpoint for automated golden image rebuilding.
+        Validates X-Hub-Signature-256 HMAC when a secret is configured, debounces rapid merges
+        to main, coalesces concurrent pushes, and triggers atomic golden rebuilds.
+        """
+        body = await request.body()
+
+        if cfg.github_webhook_secret:
+            sig = request.headers.get("X-Hub-Signature-256")
+            if not sig or not sig.startswith("sha256="):
+                raise HTTPException(status_code=401, detail="Missing or invalid X-Hub-Signature-256 header")
+            computed = "sha256=" + hmac.new(
+                cfg.github_webhook_secret.encode("utf-8"),
+                body,
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(computed, sig):
+                raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+        event = request.headers.get("X-GitHub-Event", "")
+        if event == "ping":
+            return {"status": "pong"}
+        if event != "push":
+            return {"status": "ignored", "reason": f"unhandled event '{event}'"}
+
+        try:
+            payload = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+        ref = payload.get("ref", "")
+        repo_data = payload.get("repository") or {}
+        repo_name = repo_data.get("name", "")
+        commit_sha = payload.get("after", "")
+
+        target_app = app_param
+        if not target_app:
+            # Match against known apps and composite component repos
+            for candidate in cfg.apps:
+                if candidate == repo_name:
+                    target_app = candidate
+                    break
+                mvars = cfg.load_manifest_vars(candidate)
+                composite = mvars.get("HOLO_COMPOSITE_REPOS", "").split()
+                if repo_name in composite:
+                    target_app = candidate
+                    break
+        if not target_app:
+            target_app = cfg.default_app
+
+        res = golden_sync.notify_push(
+            app=target_app,
+            repo=repo_name,
+            branch=ref.replace("refs/heads/", ""),
+            commit_sha=commit_sha,
+        )
+        return res
+
+    @app.get("/ops/golden/state")
+    def ops_golden_state(app: Optional[str] = Query(None)) -> dict:
+        """Inspect current debounce / building status of golden image synchronizer."""
+        return golden_sync.state(app)
+
+    @app.post("/ops/golden/rebuild")
+    def ops_golden_rebuild(app: Optional[str] = Query(None), force: bool = Query(False)) -> dict:
+        """Manually trigger golden sync and pool refresh."""
+        target_app = app or cfg.default_app
+        return golden_sync.trigger_sync(target_app, force=force)
 
     @app.post("/leases", response_model=LeaseResponse, status_code=201,
               dependencies=[Depends(auth)])

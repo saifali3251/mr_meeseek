@@ -286,6 +286,24 @@ class Config:
     # Static preview URL shown in the console for every workspace (e.g. a shared
     # reviewer entrypoint). Empty = show the per-lease http://127.0.0.1:<port> link.
     preview_url: str = field(default_factory=lambda: os.environ.get("HOLODECK_PREVIEW_URL", ""))
+
+    # --- golden synchronization & rebuild ---
+    # Secret for validating GitHub webhook push events (X-Hub-Signature-256)
+    github_webhook_secret: str = field(
+        default_factory=lambda: os.environ.get("HOLODECK_GITHUB_WEBHOOK_SECRET", "")
+    )
+    # Debounce quiet window (seconds) to batch rapid-fire merges into a single build
+    golden_debounce_s: int = field(
+        default_factory=lambda: int(os.environ.get("HOLODECK_GOLDEN_DEBOUNCE_S", "45"))
+    )
+    # Optional periodic background cron sweep (seconds). 0 = disabled (webhook only)
+    golden_cron_s: int = field(
+        default_factory=lambda: int(os.environ.get("HOLODECK_GOLDEN_CRON_S", "0"))
+    )
+    # Maximum execution time allowed for a single golden build before timeout
+    golden_build_timeout_s: int = field(
+        default_factory=lambda: int(os.environ.get("HOLODECK_GOLDEN_BUILD_TIMEOUT_S", "900"))
+    )
     # inbound polling (no webhook): the project to scan for labelled tickets, and
     # how often. Empty project = polling off (webhook-only). Default 60s per §flow.
     jira_project: str = field(default_factory=lambda: os.environ.get("HOLODECK_JIRA_PROJECT", ""))

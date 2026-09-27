@@ -111,6 +111,10 @@ for _ in $(seq 1 360); do   # 360 * 0.25s = 90s, same budget as the old 45 * 2s
 done
 if [[ $ready -eq 1 ]]; then
   ok "[$proj] Postgres is warm — booted on the cloned seed, no reset. (assumption 2 ✓)"
+  if [[ -n "${HOLO_MIGRATE_CMD:-}" ]]; then
+    log "[$proj] catching up database migrations: $HOLO_MIGRATE_CMD ..."
+    dc exec -T backend /bin/sh -c "$HOLO_MIGRATE_CMD" || warn "[$proj] migration catchup failed or no new migrations"
+  fi
 else
   warn "[$proj] Postgres not ready after 90s — check: docker compose -p $proj logs $HOLO_PG_SERVICE"
 fi
