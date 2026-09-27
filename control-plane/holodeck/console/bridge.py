@@ -384,7 +384,12 @@ class JiraBridge:
                       if not (evidence.get("diff") or "").strip()
                       else "\n\nNo pull request was opened — PR creation is disabled or failed; "
                            "the evidence above is still recorded.")
-        self._say(key, body, links=[("PR", pr)] if pr else None)
+        links = []
+        if pr:
+            links.append(("PR", pr))
+        if rec.preview_url:
+            links.append(("Preview", rec.preview_url))
+        self._say(key, body, links=links or None)
         return "finalized"
 
     def _release(self, key: str) -> str:

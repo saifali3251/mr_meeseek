@@ -85,6 +85,20 @@ def create_app(cfg: Config, service: LeaseService,
         c = service.capabilities()
         return CapabilitiesResponse(provider=service.provider.name, **c.__dict__)
 
+    @app.get("/caddy-ask")
+    def caddy_ask(domain: str = Query(...)) -> Response:
+        """Endpoint for Caddy's on_demand_tls ask check.
+        Validates whether TLS certificate should be issued for the domain.
+        Ensures certificate is only issued for valid preview subdomains in the port pool.
+        """
+        import re
+        m = re.match(r"^p(?P<port>\d+)\.", domain.lower())
+        if m:
+            port = int(m.group("port"))
+            if cfg.port_pool_start <= port <= cfg.port_pool_end:
+                return Response(status_code=200, content="OK")
+        return Response(status_code=403, content="Domain not allowed")
+
     @app.post("/leases", response_model=LeaseResponse, status_code=201,
               dependencies=[Depends(auth)])
     def acquire(req: AcquireRequest) -> LeaseResponse:

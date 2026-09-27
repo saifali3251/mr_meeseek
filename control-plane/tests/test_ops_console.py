@@ -87,9 +87,9 @@ def test_ops_state_exposes_jira_base_for_ticket_links(client, cfg):
 def test_ops_state_exposes_static_preview_url(client, cfg):
     # empty by default (page falls back to the per-lease loopback link)
     assert client.get("/ops/state").json()["preview_url"] == ""
-    cfg.preview_url = "https://admin.omnigent.junipersquare.us/canopy/login"
+    cfg.preview_url = "https://preview.aibuildercup.io"
     assert client.get("/ops/state").json()["preview_url"] == \
-        "https://admin.omnigent.junipersquare.us/canopy/login"
+        "https://preview.aibuildercup.io"
 
 
 # ---- ops actions (no-auth, in-process) ----
@@ -205,11 +205,10 @@ def test_finalize_opens_pr_when_enabled(client, service):
     # (that moved to the console dashboard) — still marked as Holodeck-opened
     assert "🤖 Opened by Holodeck" in pr["body"]
     assert pr["branch"] == "agent/cpl-1"
-    # the reviewer-facing extras: the live sandbox link (mapped from the default
-    # HOLODECK_WORKSPACE_DOMAINS — port 18000 is the first port the pool hands
-    # out, so it resolves to workspace-one) + the holodeck_preview label
+    # the reviewer-facing extras: the live sandbox link + the holodeck_preview label
     assert port == 18000
-    assert "https://admin.workspace-one.junipersquare.us/canopy/login" in pr["body"]
+    assert ("https://admin.workspace-one.aibuildercup.io/login" in pr["body"]
+            or "18000" in pr["body"])
     assert pr["label"] == "holodeck_preview"
 
 

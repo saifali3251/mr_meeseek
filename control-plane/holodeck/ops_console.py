@@ -61,13 +61,10 @@ class NewTeamRequest(BaseModel):
 _PREVIEW_HOSTS = ["workspace-one", "workspace-two", "workspace-three"]
 
 
-def _preview_url(preview_port: Optional[int], cfg) -> Optional[str]:
+def _preview_url(preview_port: Optional[int], cfg, app: Optional[str] = None, ticket: Optional[str] = None) -> Optional[str]:
     if preview_port is None or cfg is None:
         return None
-    idx = (preview_port - cfg.port_pool_start) % len(_PREVIEW_HOSTS)
-    if idx >= 0:
-        return f"https://admin.{_PREVIEW_HOSTS[idx]}.junipersquare.us/canopy/login"
-    return None
+    return cfg.workspace_preview_url(preview_port, app=app, ticket=ticket)
 
 
 def _lease_dict(l, cfg=None) -> dict:
@@ -78,7 +75,7 @@ def _lease_dict(l, cfg=None) -> dict:
     return {
         "lease_id": l.lease_id, "app": app, "ticket": l.ticket,
         "status": l.status.value, "preview_port": l.preview_port,
-        "preview_url": _preview_url(l.preview_port, cfg),
+        "preview_url": _preview_url(l.preview_port, cfg, app=l.app, ticket=l.ticket),
         "expires_at": l.expires_at, "created_at": l.created_at, "error": l.error,
         "golden_head": h.golden_head if h else None,
         "seed_rows": h.seed_rows if h else None,   # live status: warm-DB seeded-row count
@@ -278,9 +275,9 @@ _PAGE = r"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark light"><title>Holodeck — Operator Console</title>
 <style>
-/* Light by default (the JSQ Canopy look — clean white surfaces, soft elevation);
+/* Light by default (AI Builder Cup Hackathon look — clean white surfaces, soft elevation);
    the header toggle switches to a dark ops theme via data-theme, persisted in
-   localStorage. Juniper green (durable/ready) + teal (ephemeral) accents. */
+   localStorage. Forest green (durable/ready) + teal (ephemeral) accents. */
 :root{
   --paper:#0d1015;--surface:#161b22;--surface-2:#1c222c;--ink:#e7edf3;--ink-2:#adb7c2;--ink-3:#73808e;
   --line:#232b35;--line-2:#313a46;--green:#4bc99a;--green-deep:#83e2bb;--green-wash:#102a20;--green-line:#2f5f49;
@@ -290,9 +287,9 @@ _PAGE = r"""<!doctype html><html lang="en"><head>
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;--sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
 :root[data-theme="light"]{
-  /* Canopy-flavored light theme: white surfaces, cool neutral grays, juniper green,
-     soft elevation. Approximated from the JSQ token *system* (8px spacing, 4/8/12
-     radii) — swap these hex for the exact @jsq/ds palette when available. */
+  /* AI Builder Cup Hackathon light theme: white surfaces, cool neutral grays, forest green,
+     soft elevation. Approximated from modern design system tokens (8px spacing, 4/8/12
+     radii). */
   --paper:#f5f7f9;--surface:#fff;--surface-2:#f2f5f8;--ink:#141a21;--ink-2:#5b6672;--ink-3:#8a939e;
   --line:#e6eaef;--line-2:#d5dbe2;--green:#12805c;--green-deep:#0b5c42;--green-wash:#e6f4ee;--green-line:#b8ddce;
   --teal:#017989;--teal-deep:#025c68;--teal-wash:#e2f1f3;--teal-line:#a7d6da;--warn:#9a6a12;--warn-wash:#f7efd9;
