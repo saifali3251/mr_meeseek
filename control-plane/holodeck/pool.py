@@ -110,6 +110,22 @@ class PoolManager:
         except Exception:
             log.exception("pool: destroy of %s failed", slot.slot_id)
 
+    def drain(self, app: Optional[str] = None) -> list[PoolSlot]:
+        """Tear down idle warm slots for an app (e.g. after a golden rebuild).
+        The background reconcile loop will automatically replace them with fresh ones on next tick.
+        """
+        with self._lock:
+            apps = [app] if app else list(self._ready.keys())
+            drained: list[PoolSlot] = []
+            for a in apps:
+                slots = self._ready.pop(a, [])
+                drained.extend(slots)
+        for s in drained:
+            threading.Thread(target=self._destroy_quiet, args=(s,),
+                             name=f"pool-drain-{s.slot_id}", daemon=True).start()
+        log.info("pool: drained %d idle slot(s) for app=%s", len(drained), app or "all")
+        return drained
+
     # ---- reconcile loop ----------------------------------------------------
     def state(self) -> dict:
         """Operator snapshot — surfaced at /ops/state so a misconfigured pool is

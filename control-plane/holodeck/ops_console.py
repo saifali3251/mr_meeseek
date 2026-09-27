@@ -176,6 +176,8 @@ def build_ops_router(service: LeaseService, cfg: Config,
         # empty) looks identical to a working one until every strike is slow.
         pool = getattr(request.app.state, "pool", None)
         snap["pool"] = pool.state() if pool is not None else {"enabled": False}
+        golden_sync = getattr(request.app.state, "golden_sync", None)
+        snap["golden_sync"] = golden_sync.state() if golden_sync is not None else {}
         return snap
 
     @r.post("/ops/teams")

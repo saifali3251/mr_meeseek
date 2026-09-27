@@ -15,6 +15,7 @@ from holodeck.api import create_app
 from holodeck.config import Config, default_env_file, load_env_file
 from holodeck.db import Db
 from holodeck.factory import build, reconcile
+from holodeck.golden_sync import GoldenSyncManager
 
 logging.basicConfig(
     level=os.environ.get("HOLODECK_LOG_LEVEL", "INFO"),
@@ -36,8 +37,11 @@ def build_app_for_serving(cfg: Config | None = None):
     pool = getattr(service.provider, "pool", None)
     if pool is not None:
         pool.start()
-    app = create_app(cfg, service, teams, onboarding)
+    golden_sync = GoldenSyncManager(cfg, pool=pool)
+    golden_sync.start()
+    app = create_app(cfg, service, teams, onboarding, golden_sync=golden_sync)
     app.state.pool = pool
+    app.state.golden_sync = golden_sync
     app.state.reaper = reaper
     app.state.service = service
     app.state.config = cfg
