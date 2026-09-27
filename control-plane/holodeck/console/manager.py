@@ -107,10 +107,13 @@ class ConsoleManager:
             res = self.driver.start(ticket, app, prompt, target_repo)
         except LeaseClientError as e:
             raise ConsoleError(str(e))
+        preview_url = res.preview_url
+        if res.preview_port:
+            preview_url = self.cfg.workspace_preview_url(res.preview_port, app=app, ticket=ticket) or res.preview_url
         rec = TaskRecord(
             ticket=ticket, app=app, lease_id=res.lease_id, session_id=res.session_id,
             status=_PIPELINE.get(res.status, res.status),
-            preview_url=res.preview_url, preview_port=res.preview_port,
+            preview_url=preview_url, preview_port=res.preview_port,
             session_url=res.session_url,
         )
         self.store.put(rec)
@@ -143,7 +146,7 @@ class ConsoleManager:
                     port = lease.get("preview_port")
                     if port:
                         rec.preview_port = port
-                        rec.preview_url = self.cfg.workspace_preview_url(port)
+                        rec.preview_url = self.cfg.workspace_preview_url(port, app=rec.app, ticket=rec.ticket)
                     rec.error = lease.get("error")
                 st = self.driver.session_status(rec.session_id)
                 rec.waiting = st.waiting

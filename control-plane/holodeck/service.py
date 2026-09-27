@@ -377,7 +377,7 @@ class LeaseService:
                     lease.handle, base=self.cfg.pr_base, draft=self.cfg.pr_draft,
                     title=_pr_title(lease, ticket_summary, issue_type),
                     body=_pr_body(lease, evidence, self.cfg.jira_base_url, agent_summary,
-                                 self.cfg.workspace_preview_url(lease.preview_port)),
+                                 self.cfg.workspace_preview_url(lease.preview_port, app=lease.app, ticket=lease.ticket)),
                     label=self.cfg.pr_label or None)
             except Exception:  # PR is best-effort — a missing `gh`, a push/auth
                 # failure, anything, must never fail finalize (the evidence is the

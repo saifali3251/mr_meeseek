@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -252,24 +253,36 @@ class Config:
     jira_reset_label: str = field(
         default_factory=lambda: os.environ.get("HOLODECK_JIRA_RESET_LABEL", "holodeck:destroy"))
     jira_webhook_secret: str = field(default_factory=lambda: os.environ.get("HOLODECK_JIRA_WEBHOOK_SECRET", ""))
-    # Maps a lease's published preview port -> the one Route53 domain that's actually
-    # wired to serve it (see the 3 admin.workspace-{one,two,three}.junipersquare.us
-    # provisioned domains) — used to build the "Live sandbox" link in the PR body
-    # (service.py:_pr_body) instead of the unreachable-from-a-reviewer's-browser
+    # Maps a lease's published preview port -> the DNS domain that's actually
+    # wired to serve it (e.g. the 3 admin.workspace-{one,two,three}.aibuildercup.io
+    # provisioned domains for AI Builder Cup Hackathon) — used to build the "Live sandbox"
+    # link in the PR body (service.py:_pr_body) instead of the unreachable-from-a-reviewer's-browser
     # http://127.0.0.1:<port> tunnel address. Format: "port=domain,port=domain,...";
     # domain is just the workspace label (e.g. "workspace-one"), not the full host —
-    # _pr_body builds "https://admin.<domain>.junipersquare.us/canopy/login" from it.
-    # A port with no entry here falls back to the old localhost tunnel line, so an
-    # un-configured/extra box degrades instead of breaking PR creation.
+    # _pr_body builds "https://admin.<domain>.aibuildercup.io/login" from it.
+    # A port with no entry here falls back to the 3-tier domain hierarchy or local loopback line.
     console_workspace_domains: dict = field(default_factory=lambda: {
         int(port): domain for port, domain in (
             pair.split("=", 1) for pair in
             os.environ.get(
                 "HOLODECK_WORKSPACE_DOMAINS",
-                "18000=workspace-one,18001=workspace-two,18002=workspace-three",
+                "",
             ).split(",") if pair.strip()
         )
     })
+    # Base domain for workspace preview URLs (Tier 2 in domain hierarchy).
+    # e.g., "preview.saifali.dev" or "preview.company.com".
+    # Empty -> falls back to OMNIGENT_PUBLIC_HOST (Tier 3), or http://127.0.0.1:<port> locally.
+    preview_base_domain: str = field(
+        default_factory=lambda: os.environ.get("HOLODECK_PREVIEW_BASE_DOMAIN")
+        or os.environ.get("PREVIEW_BASE_DOMAIN", "")
+    )
+    # URL pattern for formatting preview links. Supports {port}, {base_domain}, {ticket}, {app}.
+    preview_url_pattern: str = field(
+        default_factory=lambda: os.environ.get(
+            "HOLODECK_PREVIEW_URL_PATTERN", "https://p{port}.{base_domain}"
+        )
+    )
     # Static preview URL shown in the console for every workspace (e.g. a shared
     # reviewer entrypoint). Empty = show the per-lease http://127.0.0.1:<port> link.
     preview_url: str = field(default_factory=lambda: os.environ.get("HOLODECK_PREVIEW_URL", ""))
@@ -331,20 +344,89 @@ class Config:
         found = valid_apps(self.holo_dir)
         return (found & self.apps_allow) if self.apps_allow else found
 
-    def workspace_preview_url(self, port: Optional[int]) -> Optional[str]:
+    def load_manifest_vars(self, app: Optional[str]) -> dict[str, str]:
+        """Read simple KEY=VALUE definitions from a manifest shell script without execution."""
+        if not app:
+            return {}
+        p = self.holo_dir / "manifests" / f"{app}.sh"
+        if not p.is_file():
+            return {}
+        out: dict[str, str] = {}
+        try:
+            for raw in p.read_text().splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                m = re.match(r'^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=["\']?(.*?)["\']?$', line)
+                if m:
+                    out[m.group(1)] = m.group(2)
+                    continue
+                m2 = re.match(r'^:\s*["\']?\$\{\s*([A-Za-z_][A-Za-z0-9_]*):=(.*?)\s*\}["\']?$', line)
+                if m2 and m2.group(1) not in out:
+                    out[m2.group(1)] = m2.group(2).strip('"\'')
+        except Exception:
+            logging.getLogger("holodeck.config").warning("Failed reading manifest vars for %s", app)
+        return out
+
+    def workspace_preview_url(self, port: Optional[int], app: Optional[str] = None,
+                              ticket: Optional[str] = None) -> Optional[str]:
         """The one place that turns a preview port into a reviewer-facing URL —
-        shared by service.py's PR body and console/manager.py's TaskRecord.preview_url
-        (which backs the Jira "started" comment's Preview link) so they can't drift
-        out of sync with each other again. Returns None for no port; the OLD
-        http://127.0.0.1:<port> tunnel address for a port with no entry in
-        console_workspace_domains (degrade, don't break); the real
-        admin.<domain>.junipersquare.us link otherwise."""
+        shared by service.py's PR body, console/manager.py's TaskRecord.preview_url
+        (which backs the Jira "started" comment's Preview link), and /ops dashboard.
+
+        Implements the 3-tier domain hierarchy:
+        1. Manifest HOLO_PREVIEW_DOMAIN / HOLO_PREVIEW_URL_PATTERN
+        2. Config / Environment HOLODECK_PREVIEW_BASE_DOMAIN
+        3. Default fallback (OMNIGENT_PUBLIC_HOST e.g. *.8.234.68.172.sslip.io, or 127.0.0.1:<port>)
+        """
         if not port:
             return None
-        domain = self.console_workspace_domains.get(port)
-        if domain:
-            return f"https://admin.{domain}.junipersquare.us/canopy/login"
-        return f"http://127.0.0.1:{port}"
+
+        # Tier 1: Manifest override
+        domain = None
+        pattern = None
+        if app:
+            mvars = self.load_manifest_vars(app)
+            domain = mvars.get("HOLO_PREVIEW_DOMAIN")
+            pattern = mvars.get("HOLO_PREVIEW_URL_PATTERN")
+
+        # Tier 2: System / Environment Base Domain
+        if not domain:
+            domain = self.preview_base_domain
+
+        # Tier 3: Public Host Fallback (e.g. 8.234.68.172.sslip.io)
+        if not domain:
+            domain = os.environ.get("OMNIGENT_PUBLIC_HOST", "")
+
+        # Legacy fallback if HOLODECK_WORKSPACE_DOMAINS is explicitly defined
+        if not domain and port in self.console_workspace_domains:
+            legacy_domain = self.console_workspace_domains[port]
+            return f"https://admin.{legacy_domain}.aibuildercup.io/login"
+
+        # Local loopback fallback if absolutely no domain or host is configured
+        if not domain:
+            return f"http://127.0.0.1:{port}"
+
+        # URL format resolution
+        pattern = pattern or self.preview_url_pattern or "https://p{port}.{base_domain}"
+
+        # Strip any scheme prefix from base_domain if present
+        base_domain = domain.rstrip("/")
+        if base_domain.startswith("http://") or base_domain.startswith("https://"):
+            base_domain = base_domain.split("://", 1)[1]
+
+        ticket_str = ticket or f"ws-{port}"
+        app_str = app or self.default_app
+
+        try:
+            return pattern.format(
+                port=port,
+                base_domain=base_domain,
+                ticket=ticket_str,
+                app=app_str,
+            )
+        except Exception:
+            return f"https://p{port}.{base_domain}"
 
     def app_label(self, app: str) -> str:
         """Operator-facing display name for a real manifest key (identity if none)."""
