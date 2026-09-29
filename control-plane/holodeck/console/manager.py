@@ -79,7 +79,8 @@ class ConsoleManager:
 
     def trigger(self, ticket: str, app: Optional[str] = None,
                 prompt: Optional[str] = None, target_repo: Optional[str] = None,
-                base_overrides: Optional[dict[str, str]] = None) -> TaskRecord:
+                base_overrides: Optional[dict[str, str]] = None,
+                plan_only: bool = False) -> TaskRecord:
         # Resolve a display alias (e.g. "compliance") to the real manifest key
         # ("compliance-ui") BEFORE the lease API sees it — its allowlist only knows
         # real keys, so an unresolved alias is a 422. The /ops strike route does the
@@ -117,6 +118,7 @@ class ConsoleManager:
             preview_url=preview_url, preview_port=res.preview_port,
             session_url=res.session_url,
             workflow_state="PROVISIONING",
+            plan_only=plan_only,
         )
         self.store.put(rec)
         return rec
@@ -208,12 +210,19 @@ class ConsoleManager:
         if rec is None:
             raise ConsoleNotFound(f"no task {ticket!r}")
         verdict = parse_verdict(text)
+        is_plan_approval = rec.plan_only and (verdict is True or text.strip().lower() in ("approve", "yes", "proceed"))
+        msg_to_send = text
+        if is_plan_approval:
+            msg_to_send = "Plan approved. You may now proceed directly with implementing the plan."
+            rec.plan_only = False
+            verdict = True
         try:
             if rec.elicitation_id and verdict is not None:
                 self.driver.answer(rec.session_id, rec.elicitation_id, verdict)
             else:
-                self.driver.reiterate(rec.session_id, text)
-                verdict = None  # routed as a message, not an approval
+                self.driver.reiterate(rec.session_id, msg_to_send)
+                if not is_plan_approval:
+                    verdict = None  # routed as a message, not an approval
         except DriverError as e:
             raise ConsoleError(str(e))
         rec.waiting = False
@@ -281,6 +290,8 @@ class ConsoleManager:
             rec.pr_url = evidence["pr_url"]  # overwrite: the verified PR wins over any
                                               # self-reported one scraped from the transcript
             rec.workflow_state = "CERTIFIED_PR"
+        elif not evidence.get("guardrail_passed", True):
+            rec.workflow_state = "GUARDRAIL_BLOCKED"
         elif evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
             rec.workflow_state = "NOTARY_FAILED"
         else:

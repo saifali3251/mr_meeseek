@@ -23,7 +23,7 @@ TICKET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def holo_id(ticket: str) -> str:
-    """Mirror of lib.sh holo_id: 'JSQ-118' -> 'jsq-118'.
+    """Mirror of lib.sh holo_id: 'HACK-118' -> 'hack-118'.
 
     Must match the shell exactly, because the workspace dir / compose project
     are derived from it and we use it to detect ticket->id collisions (issue #7).
@@ -140,6 +140,9 @@ class Evidence:
     # situation it refused to guess at) — see that method's own docstring. None
     # means the plain diff was trusted as-is, nothing anomalous detected.
     branch_note: Optional[str] = None
+    # Phase 4 guardrails: Blast radius audit and AST test integrity verification
+    guardrail_passed: bool = True
+    guardrail_reason: Optional[str] = None
 
 
 @dataclass

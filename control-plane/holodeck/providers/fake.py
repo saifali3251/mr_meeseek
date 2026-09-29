@@ -59,6 +59,8 @@ class FakeProvider:
         return set(self.composite_repos.get(app, set()))
 
     def finalize(self, handle: WorkspaceHandle, test_cmd: Optional[str]) -> Evidence:
+        guardrail_passed = getattr(self, "_guardrail_passed", True)
+        guardrail_reason = getattr(self, "_guardrail_reason", None)
         return Evidence(
             readiness="OK",
             readiness_ok=True,
@@ -72,6 +74,8 @@ class FakeProvider:
             schema_rev="head",
             services_booted=["webserver", "db"],
             services_absent=[],
+            guardrail_passed=guardrail_passed,
+            guardrail_reason=guardrail_reason,
         )
 
     def open_pr(self, handle: WorkspaceHandle, *, base: str, draft: bool,
@@ -79,7 +83,7 @@ class FakeProvider:
         # deterministic within a run; no network. Records the last body for assertions.
         self.last_pr = {"branch": f"agent/{handle.lease_id}", "base": base,
                         "draft": draft, "title": title, "body": body, "label": label}
-        return f"https://github.com/junipersquare/{handle.app}/pull/{(abs(hash(handle.lease_id)) % 900) + 100}"
+        return f"https://github.com/hackathon-org/{handle.app}/pull/{(abs(hash(handle.lease_id)) % 900) + 100}"
 
     def release(self, handle: WorkspaceHandle) -> None:
         self._live.pop(handle.lease_id, None)

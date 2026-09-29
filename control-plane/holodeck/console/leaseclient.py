@@ -160,6 +160,7 @@ class FakeLeaseClient:
             "test_cmd": None, "test_exit": None, "test_output": "", "test_timed_out": False,
             "diff": "", "golden_head": None, "schema_rev": None, "services_booted": [],
             "services_absent": [], "finalized_at": 0.0, "pr_url": None,
+            "guardrail_passed": True, "guardrail_reason": None,
         })
 
     def valid_target_repos(self, app: str) -> set[str]:

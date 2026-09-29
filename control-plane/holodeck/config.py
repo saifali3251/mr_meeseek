@@ -252,6 +252,8 @@ class Config:
     # this label again once done — it's an edge-trigger, not a standing state.
     jira_reset_label: str = field(
         default_factory=lambda: os.environ.get("HOLODECK_JIRA_RESET_LABEL", "holodeck:destroy"))
+    jira_plan_label: str = field(
+        default_factory=lambda: os.environ.get("HOLODECK_JIRA_PLAN_LABEL", "meeseek:plan-only"))
     jira_webhook_secret: str = field(default_factory=lambda: os.environ.get("HOLODECK_JIRA_WEBHOOK_SECRET", ""))
     # Maps a lease's published preview port -> the DNS domain that's actually
     # wired to serve it (e.g. the 3 admin.workspace-{one,two,three}.aibuildercup.io

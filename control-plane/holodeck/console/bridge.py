@@ -99,6 +99,29 @@ blocks their decision.
 """
 
 
+_PLAN_ONLY_PREAMBLE = """\
+You are working on Jira ticket {key}.
+
+Before planning, first inspect `CLAUDE.md` (or `AGENT_RULES.md`) in the repository root. \
+You must strictly adhere to the architecture conventions, typing rules, and verification patterns defined there.
+
+IMPORTANT PLAN-ONLY MANDATE:
+Do NOT modify any code, create any files, run git commits, or implement changes yet.
+Scope the ticket, inspect the relevant files, and provide a clear, structured implementation plan outlining:
+1. Target files and components to be modified.
+2. Estimated changes and blast radius.
+3. Verification and test plan.
+
+Once your plan is detailed, stop immediately and conclude with this exact line:
+
+Your action: reply `{prefix} approve` to approve this plan and authorize Meeseek to begin code implementation.
+
+When you post your plan that reaches the ticket reporter, keep it focused on the ticket itself: what you found, proposed changes, and risks.
+
+--- Ticket {key} ---
+"""
+
+
 # The FINISH hand-off convention _BEHAVIOR_PREAMBLE mandates the agent write
 # once it's actually done (not on interim status updates). Used by
 # JiraBridge._check_halt as a second, narrow gate alongside session_state ==
@@ -106,7 +129,7 @@ blocks their decision.
 _FINISH_MARKER = "Your action:"
 
 
-def _finalize_summary(ev: dict) -> str:
+def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
     """Render the notary's evidence as a short, human-readable comment — every
     field here was re-derived host-side, none of it came from the agent."""
     readiness = "✓ ready" if ev.get("readiness_ok") else "✕ not ready"
@@ -121,7 +144,20 @@ def _finalize_summary(ev: dict) -> str:
     diff = diff_stat(ev.get("diff") or "")
 
     test_failed = ev.get("test_cmd") and (test_exit != 0 or test_timed_out)
-    if test_failed:
+    guardrail_failed = not ev.get("guardrail_passed", True)
+
+    if guardrail_failed:
+        reason = ev.get("guardrail_reason") or "Blast radius or AST test integrity check failed."
+        summary = (
+            f"🛑 **Meeseek Guardrail: Blast Radius / AST Violation**\n\n"
+            f"Pull Request creation has been blocked by host guardrails.\n"
+            f"**Violation**: {reason}\n\n"
+            f"• **Readiness**: `{readiness}`\n"
+            f"• **Database Integrity**: `✓ {seed}`\n"
+            f"• **Git Diff**: `{diff}`\n\n"
+            f"🛠️ **To Authorize**: If this blast radius is intentional, reply `{prefix} approve` or adjust the scope."
+        )
+    elif test_failed:
         summary = (
             f"⚠️ **Meeseek Notary: Verification Failed**\n\n"
             f"The test command returned non-zero exit code ({tests}).\n"
@@ -149,13 +185,14 @@ def _finalize_summary(ev: dict) -> str:
     return summary
 
 
-def _wrap_prompt(spec: Optional[str], key: str, prefix: str) -> str:
+def _wrap_prompt(spec: Optional[str], key: str, prefix: str, plan_only: bool = False) -> str:
     """Build the actual seed prompt from a ticket's raw Jira description,
     wrapping it with the behavioral instructions above. Always wraps, even
     when the ticket has no description, so every Jira-triggered run gets the
     same plan/approve discipline regardless of how well-specified the ticket is."""
     body = spec or f"(no description on {key} — check the ticket directly for context)"
-    return _BEHAVIOR_PREAMBLE.format(key=key, prefix=prefix) + body
+    preamble = _PLAN_ONLY_PREAMBLE if plan_only else _BEHAVIOR_PREAMBLE
+    return preamble.format(key=key, prefix=prefix) + body
 
 
 def _is_bot_comment(body: str) -> bool:
@@ -273,6 +310,9 @@ class JiraBridge:
                 self._say(key, f"Meeseek: a session already ran for this ticket "
                                f"({existing.status}); a new one was not started.")
                 return "exists"
+            if existing.halted:
+                # Re-triggering on a halted ticket acts as resume/approval
+                return self._answer(key, "approve")
             self._say(key, "Meeseek: a task is already active for this ticket.")
             return "conflict"
         try:
@@ -281,6 +321,9 @@ class JiraBridge:
             log.exception("jira get_issue failed for %s", key)
             issue = {}
         spec = issue.get("description") or None
+        labels = issue.get("labels") or []
+        plan_label = getattr(self.cfg, "jira_plan_label", "meeseek:plan-only")
+        plan_only = bool((spec and "/plan" in spec) or (plan_label in labels))
         app = self.manager.cfg.app_key(self.manager.cfg.default_app)
         target_repo, repo_error = self._extract_target_repo(app, spec or "")
         if repo_error:
@@ -291,8 +334,10 @@ class JiraBridge:
         base_overrides = self._extract_base_overrides(spec or "")
         try:
             rec = self.manager.trigger(
-                key, prompt=_wrap_prompt(spec, key, self.prefix), target_repo=target_repo,
-                base_overrides=base_overrides)
+                key, prompt=_wrap_prompt(spec, key, self.prefix, plan_only=plan_only),
+                target_repo=target_repo,
+                base_overrides=base_overrides,
+                plan_only=plan_only)
         except ConsoleConflict:  # race safety net (a concurrent start slipped in)
             self._say(key, "Meeseek: a task is already active for this ticket.")
             return "conflict"
@@ -303,13 +348,14 @@ class JiraBridge:
         links = [(label, url) for label, url in
                  (("Preview", rec.preview_url),) if url]
         tunnel_hint = self.manager._tunnel_cmd(rec) or (f"preview port {rec.preview_port}" if rec.preview_port else "no preview port")
+        mode_hint = "Plan-only mode (`/plan` mandate active: formulating plan without code edits)" if plan_only else "In-sandbox coding underway..."
         msg = (
             f"🚀 **Meeseek on the job!**\n"
             f"*\"I'm Mr. Meeseeks, look at me! I've claimed ticket **{key}** and booted an isolated sandbox.\"*\n\n"
             f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
             f"• **Live Preview**: [{rec.preview_url}]({rec.preview_url})\n"
             f"• **Guardrails Active**: `CLAUDE.md` repository conventions pre-grounded\n"
-            f"• **Status**: In-sandbox coding underway...\n\n"
+            f"• **Status**: {mode_hint}\n\n"
             f"*(Tunnel: `{tunnel_hint}`)*"
         )
         self._say(key, msg, links=links or None)
@@ -375,8 +421,12 @@ class JiraBridge:
         of the action that actually happened (answer/finalize)."""
         rec.halted = False
         self.manager.store.put(rec)
+        remove_labels = [self.cfg.jira_halt_label]
+        plan_label = getattr(self.cfg, "jira_plan_label", "meeseek:plan-only")
+        if plan_label:
+            remove_labels.append(plan_label)
         try:
-            self.jira.set_labels(rec.ticket, remove=[self.cfg.jira_halt_label])
+            self.jira.set_labels(rec.ticket, remove=remove_labels, add=[self.cfg.jira_trigger_label])
         except Exception:
             log.exception("jira set_labels (clear halt) failed for %s", rec.ticket)
 
@@ -426,9 +476,11 @@ class JiraBridge:
             return "error"
         self._clear_halt(rec)
         pr = evidence.get("pr_url")
-        body = _finalize_summary(evidence)
+        body = _finalize_summary(evidence, prefix=self.prefix)
         if not pr:
-            if evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
+            if not evidence.get("guardrail_passed", True):
+                body += f"\n\n🛑 **Pull Request Blocked**: Host blast-radius or AST guardrails tripped ({evidence.get('guardrail_reason')})."
+            elif evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
                 body += "\n\n❌ **Pull Request Blocked**: The test suite did not pass with Exit 0. PR creation has been withheld."
             elif not (evidence.get("diff") or "").strip():
                 body += "\n\nNo pull request was opened — there was nothing to diff against golden."
@@ -530,6 +582,14 @@ class JiraBridge:
             log.exception("jira set_labels (halt) failed for %s", rec.ticket)
             return  # retry next tick
         rec.halted = True
+        if rec.plan_only:
+            rec.workflow_state = "WAITING_INPUT"
+            self._say(
+                rec.ticket,
+                f"⏸️ **Meeseek Implementation Plan Ready for Review**\n\n"
+                f"The plan-only mandate (`/plan`) was requested. The agent has prepared the implementation strategy above.\n\n"
+                f"Reply `{self.prefix} approve` to approve the plan and authorize Meeseek to begin code implementation."
+            )
         self.manager.store.put(rec)
 
     # ---- outbound (poller on_tick) ------------------------------------

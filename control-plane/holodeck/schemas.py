@@ -133,6 +133,8 @@ class EvidenceResponse(BaseModel):
     finalized_at: float
     pr_url: Optional[str] = None
     branch_note: Optional[str] = None
+    guardrail_passed: bool = True
+    guardrail_reason: Optional[str] = None
 
 
 class LeaseListResponse(BaseModel):

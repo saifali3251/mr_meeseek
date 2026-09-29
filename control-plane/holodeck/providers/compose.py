@@ -24,6 +24,7 @@ from typing import AsyncIterator, Optional
 from holodeck.config import Config
 from holodeck.models import (Evidence, ExecResult, ProviderCapabilities,
                              WorkspaceHandle, holo_id)
+from holodeck.guardrails import audit_blast_radius, verify_ast_test_integrity
 from holodeck.pool import POOL_MARKER, PoolManager, PoolSlot
 from holodeck.providers.base import ProviderError, WorkspaceExistsError
 
@@ -542,12 +543,38 @@ class ComposeProvider:
                 test_exit = tr.returncode
                 test_output = ((tr.stdout or "") + (tr.stderr or ""))[-8000:]
 
+        # Guardrail audits (Phase 4): Blast Radius & AST Test Integrity
+        guardrail_passed = True
+        guardrail_reason = None
+        if handle.golden_head and diff and diff.strip():
+            git_root = self._git_root(handle.app, ws, handle.target_repo)
+            cfr = self._run(["git", "-C", str(git_root), "diff", "--name-only", f"{handle.golden_head}..HEAD"],
+                            ws, env, timeout=15)
+            changed_files = [f.strip() for f in (cfr.stdout if cfr else "").splitlines() if f.strip()]
+
+            # 1. Blast radius audit
+            br_ok, br_reason = audit_blast_radius(diff, changed_files)
+            if not br_ok:
+                guardrail_passed = False
+                guardrail_reason = br_reason
+            else:
+                # 2. AST test integrity verification
+                def _run_git(cmd):
+                    r = self._run(cmd, ws, env, timeout=15)
+                    return r.stdout if r and r.returncode == 0 else None
+
+                ast_ok, ast_reason = verify_ast_test_integrity(git_root, handle.golden_head, changed_files, _run_git)
+                if not ast_ok:
+                    guardrail_passed = False
+                    guardrail_reason = ast_reason
+
         return Evidence(
             readiness=readiness, readiness_ok=readiness_ok, seed_rows=seed_rows,
             test_cmd=test_cmd, test_exit=test_exit, test_output=test_output,
             test_timed_out=timed_out, diff=diff, golden_head=handle.golden_head,
             schema_rev=schema_rev, services_booted=booted, services_absent=absent,
             branch_note=branch_note,
+            guardrail_passed=guardrail_passed, guardrail_reason=guardrail_reason,
         )
 
     def _recover_stray_branch(self, git_root: Path, golden_head: str, lease_id: str,

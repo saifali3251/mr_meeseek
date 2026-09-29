@@ -58,6 +58,7 @@ class TaskRecord:
                                           # the host-side notary's verified PR once finalize() runs
     workflow_state: str = "PROVISIONING"  # canonical lifecycle: PROVISIONING/CODING/WAITING_INPUT/NOTARY_TESTING/NOTARY_CORRECTING/CERTIFIED_PR/CIRCUIT_BREAKER_HALTED
     notary_retries: int = 0               # Host Notary verification retry counter
+    plan_only: bool = False               # Tier 1 plan-only mandate: halts on plan creation for approval
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -75,6 +76,7 @@ class TaskRecord:
             "jira_watermark": self.jira_watermark, "workspace": self.workspace,
             "pr_url": self.pr_url, "error": self.error,
             "workflow_state": self.workflow_state, "notary_retries": self.notary_retries,
+            "plan_only": self.plan_only,
             "created_at": self.created_at, "updated_at": self.updated_at,
             "halted": self.halted,
         }
@@ -92,7 +94,7 @@ def _rec_to_row(r: TaskRecord) -> tuple:
             r.session_state, r.agent_message, r.stable_agent_message,
             r.missing_lease_polls, r.posted_agent_message,
             r.workspace, r.pr_url, r.error, r.created_at, r.updated_at,
-            int(r.halted), r.workflow_state, r.notary_retries)
+            int(r.halted), r.workflow_state, r.notary_retries, int(r.plan_only))
 
 
 def _row_to_rec(row) -> TaskRecord:
@@ -116,6 +118,7 @@ def _row_to_rec(row) -> TaskRecord:
         halted=bool(row["halted"]),
         workflow_state=row["workflow_state"] if "workflow_state" in keys and row["workflow_state"] else "PROVISIONING",
         notary_retries=row["notary_retries"] if "notary_retries" in keys and row["notary_retries"] is not None else 0,
+        plan_only=bool(row["plan_only"]) if "plan_only" in keys and row["plan_only"] is not None else False,
     )
 
 
@@ -123,9 +126,9 @@ _COLS = ("ticket, app, lease_id, session_id, status, preview_url, preview_port, 
          "waiting, notified_waiting, elicitation_id, question, agent_name, session_url, "
          "last_action, last_action_at, jira_watermark, session_state, agent_message, "
          "stable_agent_message, missing_lease_polls, posted_agent_message, workspace, "
-         "pr_url, error, created_at, updated_at, halted, workflow_state, notary_retries")
+         "pr_url, error, created_at, updated_at, halted, workflow_state, notary_retries, plan_only")
 _UPSERT = f"""
-INSERT INTO console_tasks ({_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO console_tasks ({_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(ticket) DO UPDATE SET
   app=excluded.app, lease_id=excluded.lease_id, session_id=excluded.session_id,
   status=excluded.status, preview_url=excluded.preview_url,
@@ -141,7 +144,7 @@ ON CONFLICT(ticket) DO UPDATE SET
   workspace=excluded.workspace, pr_url=excluded.pr_url, error=excluded.error,
   created_at=excluded.created_at, updated_at=excluded.updated_at,
   halted=excluded.halted, workflow_state=excluded.workflow_state,
-  notary_retries=excluded.notary_retries
+  notary_retries=excluded.notary_retries, plan_only=excluded.plan_only
 """
 
 

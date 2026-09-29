@@ -372,10 +372,12 @@ class LeaseService:
         # (a diff vs the golden). A PR failure never fails finalize — the evidence
         # is still the truth; the PR is a convenience carried on top of it.
         #
-        # Guardrail: Exit 0 is mandatory! If a test was configured and failed or
-        # timed out, PR creation is strictly blocked to eliminate Red CI PRs.
+        # Guardrails (Phase 3 & Phase 4):
+        # 1. Exit 0 is mandatory! If a test was configured and failed or timed out, PR is blocked.
+        # 2. Host Guardrails (Blast radius and AST integrity) must pass! If violated, PR is blocked.
         test_passed = (evidence.test_exit == 0) if evidence.test_cmd else True
-        if not evidence.test_timed_out and test_passed:
+        guardrail_passed = getattr(evidence, "guardrail_passed", True)
+        if not evidence.test_timed_out and test_passed and guardrail_passed:
             if (self.cfg.pr_enabled and lease.handle is not None
                     and evidence.diff and evidence.diff.strip()):
                 try:
@@ -393,8 +395,9 @@ class LeaseService:
                         "finalize: PR creation failed for %s (evidence still stamped)", lease_id)
         else:
             log.warning(
-                "finalize: Host Notary test failed (exit=%s, timed_out=%s) for %s — PR creation blocked",
-                evidence.test_exit, evidence.test_timed_out, lease_id)
+                "finalize: PR creation blocked for %s (test_passed=%s, timed_out=%s, guardrail_passed=%s: %s)",
+                lease_id, test_passed, evidence.test_timed_out,
+                guardrail_passed, getattr(evidence, "guardrail_reason", None))
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
         self.store.put(lease)
         return evidence
