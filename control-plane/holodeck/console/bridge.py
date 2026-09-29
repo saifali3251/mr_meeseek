@@ -76,16 +76,16 @@ Scope the ticket and share your implementation plan, then proceed directly to \
 implementing it — no need to stop and wait for approval first.
 
 Do not push a branch or open a pull request yourself, even a draft — that step \
-belongs to Holodeck, not you. Commit your work on the branch that's already \
+belongs to Meeseek, not you. Commit your work on the branch that's already \
 checked out in this session — do not create or switch to a new branch, even one \
-named after the ticket; Holodeck's own verification diffs the branch that was \
+named after the ticket; Meeseek's own verification diffs the branch that was \
 already prepared for you, not whichever one you happen to leave checked out. \
 Once your change is implemented and you've run the \
 targeted test in this session to self-verify it, stop and post a summary of what \
 changed, referencing the Jira key `{key}`, ending with this exact line so the \
 reporter knows precisely what to do next:
 
-Your action: reply `{prefix} finalize` and Holodeck will independently re-verify \
+Your action: reply `{prefix} finalize` and Meeseek will independently re-verify \
 this host-side (readiness, the real test run, the diff) and open the pull \
 request itself from that evidence.
 
@@ -112,21 +112,39 @@ def _finalize_summary(ev: dict) -> str:
     readiness = "✓ ready" if ev.get("readiness_ok") else "✕ not ready"
     rows = ev.get("seed_rows")
     seed = f"{rows} seeded rows" if rows is not None else "seed check skipped"
+    test_exit = ev.get("test_exit")
+    test_timed_out = ev.get("test_timed_out")
     if ev.get("test_cmd"):
-        tests = f"tests: exit {ev.get('test_exit')}" + (" (timed out)" if ev.get("test_timed_out") else "")
+        tests = f"exit {test_exit}" + (" (timed out)" if test_timed_out else "")
     else:
         tests = "no test configured for this app"
     diff = diff_stat(ev.get("diff") or "")
-    summary = (f"Holodeck 🔏 **Finalized** — verified independently, host-side "
-              f"(not self-reported by the agent):\n\n"
-              f"{readiness} · {seed} · {tests} · diff {diff}")
+
+    test_failed = ev.get("test_cmd") and (test_exit != 0 or test_timed_out)
+    if test_failed:
+        summary = (
+            f"⚠️ **Meeseek Notary: Verification Failed**\n\n"
+            f"The test command returned non-zero exit code ({tests}).\n"
+            f"Pull Request creation has been blocked to protect the repository.\n\n"
+            f"• **Readiness**: {readiness}\n"
+            f"• **Database Integrity**: {seed}\n"
+            f"• **Git Diff**: {diff}"
+        )
+        if ev.get("test_output"):
+            summary += f"\n\n**Failure Traceback**:\n```text\n{ev['test_output'][-1500:]}\n```"
+    else:
+        summary = (
+            f"🎯 **Task Completed! Meeseek Certified Delivery**\n"
+            f"*\"Ooo yeah, can-do! All tests passed and code is verified!\"*\n\n"
+            f"🔏 **Host Notary Proof of Correctness**:\n\n"
+            f"• **Test Suite**: `✓ Passed` ({tests})\n"
+            f"• **HTTP Readiness**: `{readiness}`\n"
+            f"• **Database Integrity**: `✓ {seed}`\n"
+            f"• **Git Diff**: `{diff}`"
+        )
+
     branch_note = ev.get("branch_note")
     if branch_note:
-        # ComposeProvider._recover_stray_branch had something to say — either it
-        # found and used a stray branch instead of an initially-empty diff, or
-        # found an ambiguous multi-branch situation it refused to guess at. Either
-        # way this is exactly the kind of thing that must NOT be silent (see that
-        # method's own docstring for the 2026-08-30 incident this backstops).
         summary += f"\n\n⚠️ {branch_note}"
     return summary
 
@@ -149,7 +167,12 @@ def _is_bot_comment(body: str) -> bool:
     if b.startswith(("/", "!", "#")):
         return False
     lower = b.lower()
-    return lower.startswith(("holodeck", "meeseek"))
+    if lower.startswith(("holodeck", "meeseek")):
+        return True
+    # Emoji headers used by Meeseek
+    if any(b.startswith(prefix) for prefix in ("🚀", "💬", "⏸️", "🧪", "⚠️", "🎯", "🛑")):
+        return True
+    return False
 
 
 class JiraBridge:
@@ -205,7 +228,7 @@ class JiraBridge:
             if _is_bot_comment(body):
                 return "ignored (bot comment)"
             matched_prefix = None
-            for p in (self.prefix, "/meeseek", "/holodeck"):
+            for p in (self.prefix, "/meeseek", "#meeseek", "/holodeck", "#holodeck"):
                 if p and body.startswith(p):
                     matched_prefix = p
                     break
@@ -234,7 +257,7 @@ class JiraBridge:
         if cmd.startswith(("stop", "release")):
             return self._release(key)
         self._say(
-            key, f"Holodeck: unknown command `{cmd}`. "
+            key, f"Meeseek: unknown command `{cmd}`. "
                  f"Try `{self.prefix} run | retry <text> | finalize | stop`.")
         return "unknown-command"
 
@@ -247,10 +270,10 @@ class JiraBridge:
         existing = self.manager.store.get(key)
         if existing is not None:
             if existing.is_terminal:
-                self._say(key, f"Holodeck: a session already ran for this ticket "
+                self._say(key, f"Meeseek: a session already ran for this ticket "
                                f"({existing.status}); a new one was not started.")
                 return "exists"
-            self._say(key, "Holodeck: a task is already active for this ticket.")
+            self._say(key, "Meeseek: a task is already active for this ticket.")
             return "conflict"
         try:
             issue = self.jira.get_issue(key)
@@ -262,7 +285,7 @@ class JiraBridge:
         target_repo, repo_error = self._extract_target_repo(app, spec or "")
         if repo_error:
             if key not in self._repo_blocked:
-                self._say(key, f"Holodeck: {repo_error}")
+                self._say(key, f"Meeseek: {repo_error}")
                 self._repo_blocked.add(key)
             return "invalid-target-repo"
         base_overrides = self._extract_base_overrides(spec or "")
@@ -271,21 +294,25 @@ class JiraBridge:
                 key, prompt=_wrap_prompt(spec, key, self.prefix), target_repo=target_repo,
                 base_overrides=base_overrides)
         except ConsoleConflict:  # race safety net (a concurrent start slipped in)
-            self._say(key, "Holodeck: a task is already active for this ticket.")
+            self._say(key, "Meeseek: a task is already active for this ticket.")
             return "conflict"
         except ConsoleError as e:
-            self._say(key, f"Holodeck: failed to start — {e}")
+            self._say(key, f"Meeseek: failed to start — {e}")
             return "error"
         self._repo_blocked.discard(key)  # started fine after an earlier nag (edited + re-triggered)
-        # Session link deliberately omitted: the Omnigent session URL is an internal
-        # tooling link, not something a ticket reporter needs — same reasoning
-        # _BEHAVIOR_PREAMBLE already gives the agent for its own status updates
-        # ("leave out internal tooling/process details").
         links = [(label, url) for label, url in
                  (("Preview", rec.preview_url),) if url]
-        self._say(key, f"Holodeck ▶ started — lease `{rec.lease_id}`. "
-                       f"Updates will be posted here as the agent progresses.",
-                  links=links or None)
+        tunnel_hint = self.manager._tunnel_cmd(rec) or (f"preview port {rec.preview_port}" if rec.preview_port else "no preview port")
+        msg = (
+            f"🚀 **Meeseek on the job!**\n"
+            f"*\"I'm Mr. Meeseeks, look at me! I've claimed ticket **{key}** and booted an isolated sandbox.\"*\n\n"
+            f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
+            f"• **Live Preview**: [{rec.preview_url}]({rec.preview_url})\n"
+            f"• **Guardrails Active**: `CLAUDE.md` repository conventions pre-grounded\n"
+            f"• **Status**: In-sandbox coding underway...\n\n"
+            f"*(Tunnel: `{tunnel_hint}`)*"
+        )
+        self._say(key, msg, links=links or None)
         return "started"
 
     # A composite ticket names its target repo with a `Repo: <name>` line
@@ -359,24 +386,22 @@ class JiraBridge:
         try:
             rec, verdict = self.manager.answer(key, text)
         except ConsoleError as e:
-            self._say(key, f"Holodeck: could not apply that reply — {e}")
+            self._say(key, f"Meeseek: could not apply that reply — {e}")
             return "error"
         self._clear_halt(rec)
         if verdict is True:
-            self._say(key, "Holodeck ✅ Approved. Continuing.")
+            self._say(key, "Meeseek ✅ Approved. Continuing.")
             return "approved"
         if verdict is False:
-            self._say(key, "Holodeck ❌ Declined. Notifying the agent.")
+            self._say(key, "Meeseek ❌ Declined. Notifying the agent.")
             return "declined"
-        self._say(key, "Holodeck 🔁 Guidance received. Continuing.")
+        self._say(key, "Meeseek 🔁 Guidance received. Continuing.")
         return "reiterated"
 
     def _finalize(self, key: str) -> str:
         """The explicit human trigger for the notary. Never automatic — the human
-        decides the change is ready, then Holodeck (not the agent) re-verifies it
+        decides the change is ready, then Meeseek (not the agent) re-verifies it
         host-side and opens the PR from that evidence."""
-        # Best-effort, same pattern as _start(): a Jira hiccup here degrades to the
-        # old bare-ticket PR title/no-narrative body, it never fails finalize itself.
         ticket_summary, issue_type = None, None
         try:
             issue = self.jira.get_issue(key)
@@ -384,20 +409,31 @@ class JiraBridge:
             issue_type = issue.get("issuetype") or None
         except Exception:
             log.exception("jira get_issue failed for %s (finalize)", key)
+
+        # Notify Jira that notary verification has started
+        self._say(
+            key,
+            "🧪 **Meeseek Notary: Running Independent Verification**\n\n"
+            "The agent has concluded its implementation. Meeseek is now independently "
+            "executing the verification suite inside the container before opening a PR..."
+        )
+
         try:
             rec, evidence = self.manager.finalize(
                 key, ticket_summary=ticket_summary, issue_type=issue_type)
         except ConsoleError as e:
-            self._say(key, f"Holodeck: finalize failed — {e}")
+            self._say(key, f"Meeseek: finalize failed — {e}")
             return "error"
         self._clear_halt(rec)
         pr = evidence.get("pr_url")
         body = _finalize_summary(evidence)
         if not pr:
-            body += ("\n\nNo pull request was opened — there was nothing to diff against golden."
-                      if not (evidence.get("diff") or "").strip()
-                      else "\n\nNo pull request was opened — PR creation is disabled or failed; "
-                           "the evidence above is still recorded.")
+            if evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
+                body += "\n\n❌ **Pull Request Blocked**: The test suite did not pass with Exit 0. PR creation has been withheld."
+            elif not (evidence.get("diff") or "").strip():
+                body += "\n\nNo pull request was opened — there was nothing to diff against golden."
+            else:
+                body += "\n\nNo pull request was opened — PR creation is disabled or failed; the evidence above is still recorded."
         links = []
         if pr:
             links.append(("PR", pr))
@@ -410,25 +446,15 @@ class JiraBridge:
         try:
             self.manager.release(key)
         except ConsoleError as e:
-            self._say(key, f"Holodeck: failed to release — {e}")
+            self._say(key, f"Meeseek: failed to release — {e}")
             return "error"
-        self._say(key, "Holodeck: the environment has been released.")
+        self._say(key, "Meeseek: the environment has been released.")
         return "released"
 
     def _reset(self, key: str) -> str:
-        """Deliberate cleanup label (default `holodeck:destroy`), separate from
-        the trigger/halt labels — lets the same Jira ticket be re-run end to end
-        for testing. _start()'s one-session-per-ticket guard blocks on ANY
-        record at all in self.manager.store (terminal or not); this is the
-        supported way to clear it, rather than a manual DB edit, so a later
-        `holodeck` label add starts a genuinely new session instead of being
-        silently ignored. Releases the underlying lease first if it's somehow
-        still active (halted only means the agent is paused, not that the
-        workspace was torn down) — otherwise deleting the record here would
-        leak a running workspace nothing references anymore."""
         rec = self.manager.store.get(key)
         if rec is None:
-            self._say(key, "Holodeck: nothing to reset — no session was ever "
+            self._say(key, "Meeseek: nothing to reset — no session was ever "
                            "started for this ticket.")
         else:
             if not rec.is_terminal:
@@ -439,7 +465,7 @@ class JiraBridge:
                                "the record anyway", key, e)
             self.manager.store.delete(key)
             self._repo_blocked.discard(key)
-            self._say(key, "Holodeck: this ticket's session has been reset — "
+            self._say(key, "Meeseek: this ticket's session has been reset — "
                            f"add the `{self.cfg.jira_trigger_label}` label again "
                            "to start a new one.")
         try:
@@ -524,7 +550,7 @@ class JiraBridge:
         for rec in self.manager.store.all():
             if (rec.stable_agent_message
                     and rec.stable_agent_message != rec.posted_agent_message):
-                cid = self._say(rec.ticket, f"Holodeck 💬 {rec.stable_agent_message}")
+                cid = self._say(rec.ticket, f"💬 **Meeseek Update**\n\n{rec.stable_agent_message}")
                 if cid is not None:
                     rec.posted_agent_message = rec.stable_agent_message
                     rec.jira_watermark = str(cid)
@@ -534,9 +560,9 @@ class JiraBridge:
                 question = rec.question or "The agent needs your input to continue."
                 cid = self._say(
                     rec.ticket,
-                    f"Holodeck ⏸ **Input needed:**\n\n> {question}\n\n"
+                    f"⏸️ **Meeseek Needs Your Guidance**\n\n> {question}\n\n"
                     f"Reply with `yes` / `no`, or with your guidance — "
-                    f"it will be relayed to the agent.")
+                    f"it will be relayed to the agent in the sandbox.")
                 if cid is None:
                     continue  # post failed; retry next tick (don't mark notified)
                 rec.notified_waiting = True

@@ -371,21 +371,30 @@ class LeaseService:
         # side effect, so it runs only when enabled AND there is a real change
         # (a diff vs the golden). A PR failure never fails finalize — the evidence
         # is still the truth; the PR is a convenience carried on top of it.
-        if (self.cfg.pr_enabled and lease.handle is not None
-                and evidence.diff and evidence.diff.strip()):
-            try:
-                evidence.pr_url = self.provider.open_pr(
-                    lease.handle, base=self.cfg.pr_base, draft=self.cfg.pr_draft,
-                    title=_pr_title(lease, ticket_summary, issue_type),
-                    body=_pr_body(lease, evidence, self.cfg.jira_base_url, agent_summary,
-                                 self.cfg.workspace_preview_url(lease.preview_port, app=lease.app, ticket=lease.ticket)),
-                    label=self.cfg.pr_label or None)
-            except Exception:  # PR is best-effort — a missing `gh`, a push/auth
-                # failure, anything, must never fail finalize (the evidence is the
-                # truth). Was `except ProviderError`, which let a raw FileNotFoundError
-                # ('gh' not on the host) escape as a 500.
-                log.exception(
-                    "finalize: PR creation failed for %s (evidence still stamped)", lease_id)
+        #
+        # Guardrail: Exit 0 is mandatory! If a test was configured and failed or
+        # timed out, PR creation is strictly blocked to eliminate Red CI PRs.
+        test_passed = (evidence.test_exit == 0) if evidence.test_cmd else True
+        if not evidence.test_timed_out and test_passed:
+            if (self.cfg.pr_enabled and lease.handle is not None
+                    and evidence.diff and evidence.diff.strip()):
+                try:
+                    evidence.pr_url = self.provider.open_pr(
+                        lease.handle, base=self.cfg.pr_base, draft=self.cfg.pr_draft,
+                        title=_pr_title(lease, ticket_summary, issue_type),
+                        body=_pr_body(lease, evidence, self.cfg.jira_base_url, agent_summary,
+                                     self.cfg.workspace_preview_url(lease.preview_port, app=lease.app, ticket=lease.ticket)),
+                        label=self.cfg.pr_label or None)
+                except Exception:  # PR is best-effort — a missing `gh`, a push/auth
+                    # failure, anything, must never fail finalize (the evidence is the
+                    # truth). Was `except ProviderError`, which let a raw FileNotFoundError
+                    # ('gh' not on the host) escape as a 500.
+                    log.exception(
+                        "finalize: PR creation failed for %s (evidence still stamped)", lease_id)
+        else:
+            log.warning(
+                "finalize: Host Notary test failed (exit=%s, timed_out=%s) for %s — PR creation blocked",
+                evidence.test_exit, evidence.test_timed_out, lease_id)
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
         self.store.put(lease)
         return evidence

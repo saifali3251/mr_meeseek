@@ -116,6 +116,7 @@ class ConsoleManager:
             status=_PIPELINE.get(res.status, res.status),
             preview_url=preview_url, preview_port=res.preview_port,
             session_url=res.session_url,
+            workflow_state="PROVISIONING",
         )
         self.store.put(rec)
         return rec
@@ -182,8 +183,13 @@ class ConsoleManager:
                         if _m:
                             rec.pr_url = _m.group(0)
                             break
-                if rec.waiting and rec.status == "ready":
-                    rec.status = "waiting-input"
+                if rec.waiting:
+                    rec.workflow_state = "WAITING_INPUT"
+                    if rec.status == "ready":
+                        rec.status = "waiting-input"
+                else:
+                    if rec.workflow_state in ("PROVISIONING", "WAITING_INPUT") and rec.status == "ready":
+                        rec.workflow_state = "CODING"
                 if not rec.waiting:
                     # cleared: re-arm the notice + drop the stale elicitation
                     rec.notified_waiting = False
@@ -218,6 +224,7 @@ class ConsoleManager:
         rec.last_action_at = time.time()
         if rec.status == "waiting-input":
             rec.status = "ready"
+        rec.workflow_state = "CODING"
         self.store.put(rec)
         return rec, verdict
 
@@ -240,6 +247,7 @@ class ConsoleManager:
         rec.last_action_at = time.time()
         if rec.status == "waiting-input":
             rec.status = "ready"
+        rec.workflow_state = "CODING"
         self.store.put(rec)
         return rec
 
@@ -272,6 +280,11 @@ class ConsoleManager:
         if evidence.get("pr_url"):
             rec.pr_url = evidence["pr_url"]  # overwrite: the verified PR wins over any
                                               # self-reported one scraped from the transcript
+            rec.workflow_state = "CERTIFIED_PR"
+        elif evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
+            rec.workflow_state = "NOTARY_FAILED"
+        else:
+            rec.workflow_state = "NOTARY_TESTING"
         rec.last_action = "finalized"
         rec.last_action_at = time.time()
         self.store.put(rec)
@@ -286,6 +299,7 @@ class ConsoleManager:
         except LeaseClientError:
             log.exception("release failed for task %s", ticket)
         rec.status = "released"
+        rec.workflow_state = "RELEASED"
         self.store.put(rec)
         return rec
 

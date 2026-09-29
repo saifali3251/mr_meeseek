@@ -131,14 +131,16 @@ class FakeLeaseClient:
         # test knob: app -> allowed target_repo values, mirrors FakeProvider.composite_repos
         self.composite_repos: dict[str, set[str]] = {}
 
-    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None) -> dict:
+    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> dict:
         lid = holo_id(ticket)
         existing = self._leases.get(lid)
         if existing is not None and existing["status"] != "released":
             raise LeaseClientError(f"lease {lid!r} already active")
         self._n += 1
         lease = {"lease_id": lid, "app": app, "ticket": ticket, "status": "ready",
-                 "preview_port": 18000 + self._n, "error": None, "target_repo": target_repo}
+                 "preview_port": 18000 + self._n, "error": None, "target_repo": target_repo,
+                 "base_overrides": base_overrides}
         self._leases[lid] = lease
         return lease
 

@@ -58,9 +58,11 @@ CREATE TABLE IF NOT EXISTS console_tasks (
     error            TEXT,
     created_at       REAL,
     updated_at       REAL,
-    halted           INTEGER NOT NULL DEFAULT 0  -- holodeck:halt label edge-trigger:
+    halted           INTEGER NOT NULL DEFAULT 0, -- holodeck:halt label edge-trigger:
                                           -- set while session_state == "idle" and clears
                                           -- the moment it moves off idle (a new turn started)
+    workflow_state   TEXT DEFAULT 'PROVISIONING',
+    notary_retries   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS teams (
     slug        TEXT PRIMARY KEY,
@@ -106,6 +108,8 @@ _MIGRATIONS = [
     "ALTER TABLE console_tasks ADD COLUMN missing_lease_polls INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE console_tasks ADD COLUMN posted_agent_message TEXT",
     "ALTER TABLE console_tasks ADD COLUMN halted INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE console_tasks ADD COLUMN workflow_state TEXT DEFAULT 'PROVISIONING'",
+    "ALTER TABLE console_tasks ADD COLUMN notary_retries INTEGER NOT NULL DEFAULT 0",
 ]
 
 
