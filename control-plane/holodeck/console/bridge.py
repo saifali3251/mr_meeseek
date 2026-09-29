@@ -69,6 +69,9 @@ def _as_int(v) -> int:
 _BEHAVIOR_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
+Before planning or modifying any code, first inspect `CLAUDE.md` (or `AGENT_RULES.md`) in the repository root. \
+You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
+
 Scope the ticket and share your implementation plan, then proceed directly to \
 implementing it — no need to stop and wait for approval first.
 
