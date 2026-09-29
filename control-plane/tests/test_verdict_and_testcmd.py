@@ -39,3 +39,68 @@ def test_test_cmd_absent_when_manifest_unset(client, provider):
     client.post("/leases", json={"app": "compliance", "ticket": "CPL-2"})
     ev = client.post("/leases/cpl-2/finalize").json()
     assert ev["test_cmd"] is None
+
+
+def test_repo_specific_test_cmd_resolved(client, provider):
+    provider.composite_repos["full-stack-application"] = {"test_backend", "test_frontend"}
+    provider.manifest_test_cmd_by_repo = {
+        "test_backend": "ruff check . && pytest tests/",
+        "test_frontend": "npm run lint && tsc -b",
+    }
+    # Strike backend
+    r_be = client.post("/leases", json={
+        "app": "full-stack-application", "ticket": "FSA-10", "target_repo": "test_backend"
+    })
+    assert r_be.status_code == 201
+    ev_be = client.post("/leases/fsa-10/finalize").json()
+    assert ev_be["test_cmd"] == "ruff check . && pytest tests/"
+
+    # Strike frontend
+    r_fe = client.post("/leases", json={
+        "app": "full-stack-application", "ticket": "FSA-11", "target_repo": "test_frontend"
+    })
+    assert r_fe.status_code == 201
+    ev_fe = client.post("/leases/fsa-11/finalize").json()
+    assert ev_fe["test_cmd"] == "npm run lint && tsc -b"
+
+
+def test_base_overrides_captured_and_validated(client, provider):
+    provider.composite_repos["full-stack-application"] = {"test_backend", "test_frontend"}
+    # Valid base_overrides
+    r = client.post("/leases", json={
+        "app": "full-stack-application",
+        "ticket": "FSA-12",
+        "target_repo": "test_frontend",
+        "base_overrides": {"test_backend": "agent/fsa-10"},
+    })
+    assert r.status_code == 201
+    lease = r.json()
+    assert lease["base_overrides"] == {"test_backend": "agent/fsa-10"}
+
+    # Invalid repo in base_overrides -> 422
+    r_bad = client.post("/leases", json={
+        "app": "full-stack-application",
+        "ticket": "FSA-13",
+        "target_repo": "test_frontend",
+        "base_overrides": {"nonexistent_repo": "agent/fsa-10"},
+    })
+    assert r_bad.status_code == 422
+
+
+def test_jira_bridge_base_overrides_parsing():
+    from holodeck.console.bridge import JiraBridge
+    description = (
+        "Add UI analytics dashboard widget.\n"
+        "Repo: test_frontend\n"
+        "Base: test_backend@agent/fsa-10\n"
+    )
+    overrides = JiraBridge._extract_base_overrides(description)
+    assert overrides == {"test_backend": "agent/fsa-10"}
+
+    # Depends-On alias
+    desc_alias = (
+        "Fix navbar layout.\n"
+        "Depends-On: test_backend@feat/v2-auth\n"
+    )
+    overrides_alias = JiraBridge._extract_base_overrides(desc_alias)
+    assert overrides_alias == {"test_backend": "feat/v2-auth"}

@@ -111,15 +111,16 @@ class LeaseService:
         self._queue: collections.deque[str] = collections.deque()
         self._queue_lock = threading.Lock()
 
-    def _resolve_test_cmd(self, app: str, ticket: str) -> Optional[str]:
-        """Test source: the app's manifest default (HOLO_TEST_CMD, resolved per-app
-        by the provider), with a global env fallback. Ticket may override, agent
-        never — ticket-derived overrides are intentionally not wired to any request
-        field yet; a future ticket integration sets ticket_test_cmd here."""
-        return self.provider.test_cmd(app) or os.environ.get("HOLO_TEST_CMD") or None
+    def _resolve_test_cmd(self, app: str, ticket: str, target_repo: Optional[str] = None) -> Optional[str]:
+        """Test source: the app's manifest default (HOLO_TEST_CMD, or repo-specific
+        HOLO_TEST_CMD_<repo>, resolved per-app by the provider), with a global env fallback.
+        Ticket may override, agent never — ticket-derived overrides are intentionally not
+        wired to any request field yet; a future ticket integration sets ticket_test_cmd here."""
+        return self.provider.test_cmd(app, target_repo=target_repo) or os.environ.get("HOLO_TEST_CMD") or None
 
     def acquire(self, app: str, ticket: str, preview: Optional[int],
-                ttl_s: Optional[int], target_repo: Optional[str] = None) -> Lease:
+                ttl_s: Optional[int], target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> Lease:
         # target_repo is validated by the caller (api.py, against
         # provider.valid_target_repos(app)) BEFORE this is called — same boundary
         # `app` itself is already checked at, in api.py's route, not here.
@@ -151,8 +152,8 @@ class LeaseService:
         ttl = ttl_s or self.cfg.default_ttl_s
         lease = Lease(
             lease_id=lease_id, app=app, ticket=ticket, status=LeaseStatus.PENDING,
-            preview_port=port, ticket_test_cmd=self._resolve_test_cmd(app, ticket),
-            target_repo=target_repo,
+            preview_port=port, ticket_test_cmd=self._resolve_test_cmd(app, ticket, target_repo),
+            target_repo=target_repo, base_overrides=base_overrides,
             token=secrets.token_urlsafe(24),  # capability for the exec gateway
             expires_at=time.time() + ttl,
         )
@@ -217,7 +218,7 @@ class LeaseService:
         overwriting it — never resurrect to READY, never downgrade to FAILED."""
         lease_id = lease.lease_id
         try:
-            handle = self.provider.acquire(lease_id, app, ticket, port, lease.target_repo)
+            handle = self.provider.acquire(lease_id, app, ticket, port, lease.target_repo, lease.base_overrides)
         except WorkspaceExistsError as e:
             self.store.ports.release(port)
             self.store.delete(lease_id)

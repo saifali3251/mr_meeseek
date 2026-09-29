@@ -43,6 +43,7 @@ def _lease_response(l: Lease) -> LeaseResponse:
         ws_dir=h.ws_dir if h else None,
         golden_head=h.golden_head if h else None,
         target_repo=l.target_repo,
+        base_overrides=l.base_overrides,
         exec_url=f"/leases/{l.lease_id}/exec", token=l.token,
         expires_at=l.expires_at, error=l.error,
     )
@@ -199,8 +200,19 @@ def create_app(cfg: Config, service: LeaseService,
                     status_code=422,
                     detail=f"unknown target_repo '{req.target_repo}' for app '{req.app}'; "
                            f"valid: {sorted(valid_repos) or '(none — single-repo app)'}")
+        if req.base_overrides:
+            valid_repos = service.provider.valid_target_repos(req.app)
+            invalid_deps = [r for r in req.base_overrides if r not in valid_repos]
+            if invalid_deps:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"unknown dependency repo(s) in base_overrides {invalid_deps} for app '{req.app}'; "
+                           f"valid: {sorted(valid_repos)}")
         try:
-            lease = service.acquire(req.app, req.ticket, req.preview, req.ttl_s, req.target_repo)
+            lease = service.acquire(
+                req.app, req.ticket, req.preview, req.ttl_s, req.target_repo,
+                base_overrides=req.base_overrides,
+            )
         except LeaseConflict as e:
             raise HTTPException(status_code=409,
                                 detail=f"lease '{e.lease_id}' already exists")

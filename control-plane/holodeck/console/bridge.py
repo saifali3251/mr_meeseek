@@ -265,9 +265,11 @@ class JiraBridge:
                 self._say(key, f"Holodeck: {repo_error}")
                 self._repo_blocked.add(key)
             return "invalid-target-repo"
+        base_overrides = self._extract_base_overrides(spec or "")
         try:
             rec = self.manager.trigger(
-                key, prompt=_wrap_prompt(spec, key, self.prefix), target_repo=target_repo)
+                key, prompt=_wrap_prompt(spec, key, self.prefix), target_repo=target_repo,
+                base_overrides=base_overrides)
         except ConsoleConflict:  # race safety net (a concurrent start slipped in)
             self._say(key, "Holodeck: a task is already active for this ticket.")
             return "conflict"
@@ -292,6 +294,15 @@ class JiraBridge:
     # trigger/halt labels). Case-insensitive on the key, exactly one bare
     # token as the value (repo names have no spaces).
     _REPO_LINE_RE = re.compile(r"^\s*repo\s*:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
+    _BASE_LINE_RE = re.compile(r"^\s*(?:base|depends-on)\s*:\s*(\S+)@(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
+
+    @classmethod
+    def _extract_base_overrides(cls, description: str) -> Optional[dict[str, str]]:
+        """Parse upstream base/dependency branch overrides from lines like:
+        `Base: test_backend@agent/fsa-10` or `Depends-On: test_backend@agent/fsa-10`.
+        Returns a dict of {repo: ref} or None if none found."""
+        overrides = {m.group(1): m.group(2) for m in cls._BASE_LINE_RE.finditer(description)}
+        return overrides or None
 
     def _extract_target_repo(self, app: str, description: str) -> tuple[Optional[str], Optional[str]]:
         """Parse target_repo out of the ticket description. Returns

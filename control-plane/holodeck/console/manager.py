@@ -78,7 +78,8 @@ class ConsoleManager:
         self.driver = driver
 
     def trigger(self, ticket: str, app: Optional[str] = None,
-                prompt: Optional[str] = None, target_repo: Optional[str] = None) -> TaskRecord:
+                prompt: Optional[str] = None, target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> TaskRecord:
         # Resolve a display alias (e.g. "compliance") to the real manifest key
         # ("compliance-ui") BEFORE the lease API sees it — its allowlist only knows
         # real keys, so an unresolved alias is a 422. The /ops strike route does the
@@ -104,7 +105,7 @@ class ConsoleManager:
                     f"invalid target_repo {target_repo!r} for app {app!r} "
                     f"— must be one of {sorted(valid)}")
         try:
-            res = self.driver.start(ticket, app, prompt, target_repo)
+            res = self.driver.start(ticket, app, prompt, target_repo, base_overrides=base_overrides)
         except LeaseClientError as e:
             raise ConsoleError(str(e))
         preview_url = res.preview_url

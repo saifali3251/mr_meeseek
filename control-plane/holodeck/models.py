@@ -81,6 +81,8 @@ class WorkspaceHandle:
     # (falls back to the manifest's static HOLO_GIT_SUBDIR) or a composite lease
     # acquired without picking one.
     target_repo: Optional[str] = None
+    # For composite apps: map of repo -> git ref/branch to checkout as dependency
+    base_overrides: Optional[dict[str, str]] = None
     # seeded-row count captured once at strike (HOLO_SEED_PROOF_SQL) — a live status
     # signal shown on the console without a manual finalize. Best-effort: None if the
     # query didn't run. Does NOT gate provisioning.
@@ -157,6 +159,7 @@ class Lease:
     # not threaded through _start_strike/_strike_safe/_advance_queue as an extra
     # parameter, since it's already available here wherever `lease` already is.
     target_repo: Optional[str] = None
+    base_overrides: Optional[dict[str, str]] = None
     evidence: Optional[Evidence] = None
     error: Optional[str] = None
     # per-lease capability token (deck's `teardown_token`): authorizes the

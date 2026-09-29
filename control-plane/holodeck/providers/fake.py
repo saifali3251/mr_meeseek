@@ -32,6 +32,7 @@ class FakeProvider:
     def acquire(
         self, lease_id: str, app: str, ticket: str, preview_port: Optional[int],
         target_repo: Optional[str] = None,
+        base_overrides: Optional[dict[str, str]] = None,
     ) -> WorkspaceHandle:
         if self.acquire_block is not None:
             self.acquire_block.wait()
@@ -49,6 +50,7 @@ class FakeProvider:
             golden_head="deadbeef",
             seed_rows=42,
             target_repo=target_repo,
+            base_overrides=base_overrides,
         )
         self._live[lease_id] = h
         return h
@@ -128,7 +130,11 @@ class FakeProvider:
     ) -> None:
         self._files[(handle.lease_id, remote_path)] = content
 
-    def test_cmd(self, app: str) -> Optional[str]:
+    def test_cmd(self, app: str, target_repo: Optional[str] = None) -> Optional[str]:
+        if target_repo and hasattr(self, "manifest_test_cmd_by_repo"):
+            repo_cmd = getattr(self, "manifest_test_cmd_by_repo", {}).get(target_repo)
+            if repo_cmd:
+                return repo_cmd
         return self.manifest_test_cmd
 
     def prepare(self, app: Optional[str] = None) -> list[str]:
