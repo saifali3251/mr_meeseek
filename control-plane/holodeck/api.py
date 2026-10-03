@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 import shlex
+from pathlib import Path
 from typing import Optional
 
 from fastapi import (Depends, FastAPI, Header, HTTPException, Query, Request,
@@ -407,5 +408,11 @@ def create_app(cfg: Config, service: LeaseService,
     if teams is not None and onboarding is not None:
         app.include_router(build_onboarding_api_router(onboarding, cfg))
         app.include_router(build_onboarding_pages_router(onboarding, teams))
+
+    # Mount modern React Console UI if built in ui/dist
+    ui_dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
+    if ui_dist.is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/console", StaticFiles(directory=str(ui_dist), html=True), name="console")
 
     return app

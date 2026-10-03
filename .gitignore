@@ -9,3 +9,7 @@ holodeck.local.env
 # holodeck: never commit bytecode
 __pycache__/
 *.pyc
+
+node_modules/
+dist/
+.DS_Store
