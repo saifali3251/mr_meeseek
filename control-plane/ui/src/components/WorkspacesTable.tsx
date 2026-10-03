@@ -185,9 +185,12 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                           PR Delivered (Exit 0)
                         </span>
                       ) : task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT" ? (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mr-1.5 animate-pulse"></span>
-                          Preview Live (Reviewing)
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10">
+                          <span className="relative flex h-2 w-2 mr-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+                          </span>
+                          Action Required: Awaiting Review
                         </span>
                       ) : task?.workflow_state === "CODING" ? (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-300 border border-purple-500/30">
@@ -308,6 +311,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                         <WorkflowDAGStepper
                           lease={lease}
                           task={task}
+                          jiraBaseUrl={jiraBaseUrl}
                         />
                       </td>
                     </tr>

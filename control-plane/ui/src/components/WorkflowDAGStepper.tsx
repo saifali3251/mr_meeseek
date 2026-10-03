@@ -6,15 +6,19 @@ import {
   AlertTriangle, 
   ShieldCheck, 
   FileCode, 
-  ExternalLink,
-  Globe,
-  Database
+  ExternalLink, 
+  Globe, 
+  Database,
+  Copy,
+  Check,
+  MessageSquare
 } from "lucide-react";
 import { TaskRecord, Lease, WorkflowState } from "../types";
 
 interface WorkflowDAGStepperProps {
   task?: TaskRecord;
   lease?: Lease;
+  jiraBaseUrl?: string;
 }
 
 interface StageDefinition {
@@ -115,7 +119,7 @@ function getStageDescription(stageKey: string, status: "COMPLETED" | "IN_PROGRES
         return "Review cycle concluded. Live preview and code diffs were inspected by the reviewer prior to notary certification.";
       }
       if (status === "IN_PROGRESS") {
-        return "Agent turn paused. Live interactive application is accessible on preview port with hot reload. Reviewer tests the UI live and reviews diffs before finalization.";
+        return "Agent implementation turn completed. Live interactive application is accessible on preview port with hot reload. Reviewer action is required: test the UI live, then finalize or request revisions.";
       }
       return "Once agent implementation finishes, a live interactive application preview will be exposed on a dedicated port for human review.";
 
@@ -145,9 +149,11 @@ function getStageDescription(stageKey: string, status: "COMPLETED" | "IN_PROGRES
 export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
   task,
   lease,
+  jiraBaseUrl,
 }) => {
   const currentIdx = getStageIndex(task?.workflow_state, lease, task);
   const [selectedStageIdx, setSelectedStageIdx] = useState<number | null>(null);
+  const [copiedFinalize, setCopiedFinalize] = useState<boolean>(false);
 
   const activeInspectIdx = selectedStageIdx !== null ? selectedStageIdx : currentIdx;
   const activeInspectStage = STAGES[activeInspectIdx];
@@ -159,10 +165,23 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
       ? "IN_PROGRESS" 
       : "PENDING";
 
+  const isAwaitingReview = 
+    (currentIdx === 3 || task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
+    activeInspectStage.key === "PREVIEW";
+
   const isFailed = task?.workflow_state === "FAILED" || (task?.evidence && task.evidence.test_exit !== undefined && task.evidence.test_exit !== 0);
   const isGuardrailBlocked = task?.workflow_state === "GUARDRAIL_BLOCKED" || (task?.evidence?.guardrail_passed === false);
 
   const dynamicDescription = getStageDescription(activeInspectStage.key, stageStatus);
+
+  const ticketKey = lease?.ticket || task?.ticket || "";
+  const jiraCommentUrl = jiraBaseUrl && ticketKey ? `${jiraBaseUrl.replace(/\/$/, "")}/browse/${ticketKey}#addcomment` : null;
+
+  const handleCopyFinalize = () => {
+    navigator.clipboard.writeText("/meeseek finalize");
+    setCopiedFinalize(true);
+    setTimeout(() => setCopiedFinalize(false), 2000);
+  };
 
   return (
     <div className="bg-meeseek-950/70 rounded-2xl p-5 border border-meeseek-border/80">
@@ -186,17 +205,30 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
             } else if (isCurrent) {
               if (isFailed || isGuardrailBlocked) {
                 nodeStyle = "border-red-500 bg-red-950/60 text-red-400 ring-4 ring-red-500/20";
-              } else if (stage.key === "PREVIEW" || task?.halted) {
-                nodeStyle = "border-cyan-400 bg-cyan-950/60 text-cyan-300 ring-4 ring-cyan-500/20";
+                pulseBadge = (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                  </span>
+                );
+              } else if (stage.key === "PREVIEW" && (task?.halted || currentIdx === 3)) {
+                // Amber beacon when awaiting human review
+                nodeStyle = "border-amber-400 bg-amber-950/60 text-amber-300 ring-4 ring-amber-500/30 shadow-lg shadow-amber-500/20";
+                pulseBadge = (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                  </span>
+                );
               } else {
                 nodeStyle = "border-cyan-400 bg-cyan-950/60 text-cyan-300 ring-4 ring-cyan-500/20";
+                pulseBadge = (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+                  </span>
+                );
               }
-              pulseBadge = (
-                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
-                </span>
-              );
             }
 
             return (
@@ -221,7 +253,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                   {pulseBadge}
                 </div>
 
-                {/* Clean Node Label (Subtitle removed to prevent truncation) */}
+                {/* Clean Node Label */}
                 <div className="mt-2 text-center max-w-[120px]">
                   <p className={`text-xs sm:text-sm font-semibold ${isCurrent || isSelected ? "text-white font-bold" : "text-slate-400"}`}>
                     {stage.stepNum}. {stage.label}
@@ -235,7 +267,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
 
       {/* Inline Stage Inspector Panel */}
       <div className="mt-5 pt-4 border-t border-slate-800/80">
-        {/* Step Header: "Inspecting Step X of 6" removed as requested */}
+        {/* Step Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
             <span className="text-base sm:text-lg font-bold text-white tracking-tight">
@@ -247,9 +279,16 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
               </span>
             )}
             {stageStatus === "IN_PROGRESS" && (
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 animate-pulse">
-                IN PROGRESS
-              </span>
+              isAwaitingReview ? (
+                <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse flex items-center space-x-1.5 shadow-sm shadow-amber-500/10">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                  <span>⚠️ AWAITING HUMAN REVIEW</span>
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 animate-pulse">
+                  IN PROGRESS
+                </span>
+              )
             )}
             {stageStatus === "PENDING" && (
               <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700">
@@ -326,6 +365,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
           {/* STEP 4: LIVE PREVIEW & REVIEW */}
           {activeInspectIdx === 3 && (
             <div className="pt-4 border-t border-slate-800 space-y-4">
+              {/* Live Preview Button Box */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-cyan-950/40 p-4 rounded-xl border border-cyan-500/30">
                 <div>
                   <div className="flex items-center space-x-2">
@@ -353,23 +393,60 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
-                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block mb-1.5 font-semibold">How to Review & Continue:</span>
-                  <ul className="text-slate-300 space-y-1.5 list-disc list-inside">
-                    <li>To iterate: Comment feedback on Jira (e.g. <span className="text-cyan-400 font-semibold">"Please adjust styling"</span>)</li>
-                    <li>To deliver PR: Comment <span className="text-emerald-400 font-bold">/meeseek finalize</span></li>
-                  </ul>
+              {/* ACTION REQUIRED BANNER & JIRA LINK */}
+              <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/40 shadow-lg shadow-amber-500/5">
+                <div className="flex items-center space-x-2 text-amber-300 font-bold text-xs uppercase tracking-wider mb-1">
+                  <span>⚠️ Action Required to Deliver Pull Request</span>
                 </div>
-                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                  <span className="text-slate-400 block mb-1.5 font-semibold">Preview Tunnel Endpoint:</span>
-                  <div className="text-cyan-300 truncate font-bold">
-                    {lease?.preview_url || `http://localhost:${lease?.preview_port || 18000}/`}
-                  </div>
-                  <span className="text-xs text-slate-500 block mt-1">
-                    Hot reload active inside container workspace
-                  </span>
+                <p className="text-xs text-slate-300 mb-3">
+                  The agent has applied its code changes and hot reload is active. Test the live preview above. To approve changes and trigger Host Notary verification, comment <span className="text-emerald-400 font-mono font-bold">/meeseek finalize</span> on the Jira ticket:
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {jiraCommentUrl && (
+                    <a
+                      href={jiraCommentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md shadow-cyan-500/20 transition-all"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Comment on Jira ({ticketKey}) ↗</span>
+                    </a>
+                  )}
+                  <button
+                    onClick={handleCopyFinalize}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-mono font-semibold transition-all active:scale-95"
+                  >
+                    {copiedFinalize ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied "/meeseek finalize"!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Copy "/meeseek finalize"</span>
+                      </>
+                    )}
+                  </button>
                 </div>
+
+                <div className="text-[11px] text-slate-400 border-t border-slate-800/80 pt-2 font-mono">
+                  <span className="text-slate-300 font-medium">To request revisions instead: </span>
+                  Reply directly on Jira with your instructions (e.g. <span className="text-cyan-400">"Adjust button spacing to 12px"</span>).
+                </div>
+              </div>
+
+              {/* Tunnel Endpoint Info */}
+              <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 font-mono text-xs">
+                <span className="text-slate-400 block mb-1 font-semibold">Preview Tunnel Endpoint:</span>
+                <div className="text-cyan-300 truncate font-bold">
+                  {lease?.preview_url || `http://localhost:${lease?.preview_port || 18000}/`}
+                </div>
+                <span className="text-[11px] text-slate-500 block mt-1">
+                  Hot reload active inside container workspace
+                </span>
               </div>
             </div>
           )}
