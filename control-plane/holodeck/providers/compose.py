@@ -24,6 +24,7 @@ from typing import AsyncIterator, Optional
 from holodeck.config import Config
 from holodeck.models import (Evidence, ExecResult, ProviderCapabilities,
                              WorkspaceHandle, holo_id)
+from holodeck.guardrails import audit_blast_radius, verify_ast_test_integrity
 from holodeck.pool import POOL_MARKER, PoolManager, PoolSlot
 from holodeck.providers.base import ProviderError, WorkspaceExistsError
 
@@ -85,9 +86,27 @@ class ComposeProvider:
         self.pool.adopt_one = self._pool_adopt_one
 
     # ---- manifest resolution ----------------------------------------------
-    def test_cmd(self, app: str) -> Optional[str]:
-        """HOLO_TEST_CMD from the resolved manifest (via holo-env.sh), or None."""
-        return self._manifest(app).get("HOLO_TEST_CMD") or None
+    def test_cmd(self, app: str, target_repo: Optional[str] = None) -> Optional[str]:
+        """HOLO_TEST_CMD from the resolved manifest (via holo-env.sh), or repo-specific
+        HOLO_TEST_CMD_<target_repo>, or None."""
+        m = self._manifest(app)
+        if target_repo:
+            repo_cmd = m.get(f"HOLO_TEST_CMD_{target_repo}")
+            if repo_cmd:
+                return repo_cmd
+        return m.get("HOLO_TEST_CMD") or None
+
+    def _test_service(self, app: str, target_repo: Optional[str], m: dict[str, str]) -> str:
+        """Resolve which container service to run tests in."""
+        if target_repo:
+            svc_key = f"HOLO_TEST_SERVICE_{target_repo}"
+            if m.get(svc_key):
+                return m[svc_key]
+            if target_repo in ("test_frontend", "frontend"):
+                return "frontend"
+            if target_repo in ("test_backend", "backend"):
+                return "backend"
+        return m.get("HOLO_TEST_SERVICE") or m.get("HOLO_APP_SERVICE", "backend")
 
     def _manifest(self, app: str) -> dict[str, str]:
         """Resolved manifest config for `app`, straight from lib.sh. Cached per app."""
@@ -264,7 +283,8 @@ class ComposeProvider:
             self._ports.release(slot.port)
 
     def _claim_slot(self, slot: PoolSlot, lease_id: str, app: str, ticket: str,
-                    target_repo: Optional[str] = None) -> Optional[WorkspaceHandle]:
+                    target_repo: Optional[str] = None,
+                    base_overrides: Optional[dict[str, str]] = None) -> Optional[WorkspaceHandle]:
         """Bind a warm slot to a ticket. This is the whole fast path.
 
         `checkout -B`, not `-b`: a retried ticket (a previously FAILED lease) may
@@ -311,6 +331,22 @@ class ComposeProvider:
             log.warning("pool: branch cut for agent/%s failed in %s (%s) — serving the "
                         "slot anyway, as strike.sh does", lease_id, git_root,
                         (r.stderr.strip()[:200] if r else "timeout"))
+        if base_overrides:
+            for dep_repo, ref in base_overrides.items():
+                try:
+                    dep_root = self._git_root(app, ws, dep_repo)
+                    self._run(["git", "-C", str(dep_root), "fetch", "--quiet", "origin", ref],
+                              self.scripts, dict(os.environ), timeout=60)
+                    checkout_dep = self._run(
+                        ["git", "-C", str(dep_root), "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", ref],
+                        self.scripts, dict(os.environ), timeout=30
+                    )
+                    if checkout_dep and checkout_dep.returncode == 0:
+                        log.info("pool: checked out dependency %s at %s for lease %s", dep_repo, ref, lease_id)
+                    else:
+                        log.warning("pool: failed checking out dependency %s at %s for lease %s", dep_repo, ref, lease_id)
+                except Exception as e:
+                    log.warning("pool: exception checking out dependency %s: %s", dep_repo, e)
         try:
             (ws / POOL_MARKER).unlink()
         except OSError:
@@ -319,12 +355,14 @@ class ComposeProvider:
             lease_id=lease_id, app=app, ticket=ticket, preview_port=slot.port,
             compose_project=slot.compose_project, ws_dir=str(ws),
             golden_head=self._git_head(git_root), target_repo=target_repo,
+            base_overrides=base_overrides,
         )
 
     # ---- lifecycle ---------------------------------------------------------
     def acquire(
         self, lease_id: str, app: str, ticket: str, preview_port: Optional[int],
         target_repo: Optional[str] = None,
+        base_overrides: Optional[dict[str, str]] = None,
     ) -> WorkspaceHandle:
         # Fast path: a pre-booted warm slot turns a ~2min strike into a branch
         # cut + a readiness GET. Falls through to the cold path on any miss —
@@ -333,7 +371,7 @@ class ComposeProvider:
         slot = self.pool.claim(app)
         if slot is not None:
             t0 = time.monotonic()
-            handle = self._claim_slot(slot, lease_id, app, ticket, target_repo)
+            handle = self._claim_slot(slot, lease_id, app, ticket, target_repo, base_overrides=base_overrides)
             if handle is not None:
                 log.info("strike SERVED FROM POOL lease=%s slot=%s port=%s in %.2fs",
                          lease_id, slot.slot_id, slot.port, time.monotonic() - t0)
@@ -393,13 +431,26 @@ class ComposeProvider:
         # Absolute, manifest-resolved. Guessing this produced a relative path and a
         # FileNotFoundError the moment finalize used it as a cwd.
         ws_dir = Path(self._manifest(app)["HOLO_WORKSPACES"]) / lease_id
+        if base_overrides:
+            for dep_repo, ref in base_overrides.items():
+                try:
+                    dep_root = self._git_root(app, ws_dir, dep_repo)
+                    self._run(["git", "-C", str(dep_root), "fetch", "--quiet", "origin", ref],
+                              self.scripts, dict(os.environ), timeout=60)
+                    self._run(
+                        ["git", "-C", str(dep_root), "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", ref],
+                        self.scripts, dict(os.environ), timeout=30
+                    )
+                    log.info("cold strike: checked out dependency %s at %s for lease %s", dep_repo, ref, lease_id)
+                except Exception as e:
+                    log.warning("cold strike: exception checking out dependency %s: %s", dep_repo, e)
         golden_head = self._git_head(self._git_root(app, ws_dir, target_repo))
         log.info("strike succeeded lease=%s ws_dir=%s golden_head=%s target_repo=%s (%.1fs)",
                  lease_id, ws_dir, golden_head, target_repo, elapsed)
         handle = WorkspaceHandle(
             lease_id=lease_id, app=app, ticket=ticket, preview_port=preview_port,
             compose_project=f"ws-{lease_id}", ws_dir=str(ws_dir), golden_head=golden_head,
-            target_repo=target_repo,
+            target_repo=target_repo, base_overrides=base_overrides,
         )
         # Best-effort seeded-row snapshot for the console status (never fails the
         # strike; the workspace is already up + seeded here).
@@ -483,14 +534,46 @@ class ComposeProvider:
         test_exit: Optional[int] = None
         test_output, timed_out = "", False
         if test_cmd:
-            svc = m["HOLO_APP_SERVICE"]
+            svc = self._test_service(handle.app, handle.target_repo, m)
+            log.info("finalize: executing test_cmd in container '%s': %s", svc, test_cmd)
             tr = self._run(dc + ["exec", "-T", svc, "sh", "-lc", test_cmd], ws, env,
                            timeout=self.cfg.finalize_timeout_s)
             if tr is None:  # timed out (issue #6): record, don't raise.
                 timed_out, test_output = True, "test exceeded finalize timeout"
+                log.warning("finalize: test_cmd timed out after %ss: %s", self.cfg.finalize_timeout_s, test_cmd)
             else:
                 test_exit = tr.returncode
                 test_output = ((tr.stdout or "") + (tr.stderr or ""))[-8000:]
+                if test_exit == 0:
+                    log.info("finalize: test_cmd passed with Exit 0 in container '%s'", svc)
+                else:
+                    log.warning("finalize: test_cmd failed with exit code %s in container '%s':\n%s",
+                                test_exit, svc, test_output.strip())
+
+        # Guardrail audits (Phase 4): Blast Radius & AST Test Integrity
+        guardrail_passed = True
+        guardrail_reason = None
+        if handle.golden_head and diff and diff.strip():
+            git_root = self._git_root(handle.app, ws, handle.target_repo)
+            cfr = self._run(["git", "-C", str(git_root), "diff", "--name-only", f"{handle.golden_head}..HEAD"],
+                            ws, env, timeout=15)
+            changed_files = [f.strip() for f in (cfr.stdout if cfr else "").splitlines() if f.strip()]
+
+            # 1. Blast radius audit
+            br_ok, br_reason = audit_blast_radius(diff, changed_files)
+            if not br_ok:
+                guardrail_passed = False
+                guardrail_reason = br_reason
+            else:
+                # 2. AST test integrity verification
+                def _run_git(cmd):
+                    r = self._run(cmd, ws, env, timeout=15)
+                    return r.stdout if r and r.returncode == 0 else None
+
+                ast_ok, ast_reason = verify_ast_test_integrity(git_root, handle.golden_head, changed_files, _run_git)
+                if not ast_ok:
+                    guardrail_passed = False
+                    guardrail_reason = ast_reason
 
         return Evidence(
             readiness=readiness, readiness_ok=readiness_ok, seed_rows=seed_rows,
@@ -498,6 +581,7 @@ class ComposeProvider:
             test_timed_out=timed_out, diff=diff, golden_head=handle.golden_head,
             schema_rev=schema_rev, services_booted=booted, services_absent=absent,
             branch_note=branch_note,
+            guardrail_passed=guardrail_passed, guardrail_reason=guardrail_reason,
         )
 
     def _recover_stray_branch(self, git_root: Path, golden_head: str, lease_id: str,
@@ -589,8 +673,12 @@ class ComposeProvider:
         if push is None or push.returncode != 0:
             raise ProviderError(
                 f"git push failed for {branch}: {(push.stderr if push else 'timeout')[:300]}")
+        pr_body = body
+        if handle.base_overrides:
+            dep_lines = "\n".join(f"- `{repo}`: `{ref}`" for repo, ref in handle.base_overrides.items())
+            pr_body = f"{body}\n\n### 🔗 Upstream Dependencies\nThis pull request was developed and verified against unmerged branch(es):\n{dep_lines}\n"
         args = ["gh", "pr", "create", "--base", base, "--head", branch,
-                "--title", title, "--body", body]
+                "--title", title, "--body", pr_body]
         if draft:
             args.append("--draft")
         cr = self._run(args, git_root, env, timeout=60)

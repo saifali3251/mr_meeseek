@@ -111,15 +111,16 @@ class LeaseService:
         self._queue: collections.deque[str] = collections.deque()
         self._queue_lock = threading.Lock()
 
-    def _resolve_test_cmd(self, app: str, ticket: str) -> Optional[str]:
-        """Test source: the app's manifest default (HOLO_TEST_CMD, resolved per-app
-        by the provider), with a global env fallback. Ticket may override, agent
-        never — ticket-derived overrides are intentionally not wired to any request
-        field yet; a future ticket integration sets ticket_test_cmd here."""
-        return self.provider.test_cmd(app) or os.environ.get("HOLO_TEST_CMD") or None
+    def _resolve_test_cmd(self, app: str, ticket: str, target_repo: Optional[str] = None) -> Optional[str]:
+        """Test source: the app's manifest default (HOLO_TEST_CMD, or repo-specific
+        HOLO_TEST_CMD_<repo>, resolved per-app by the provider), with a global env fallback.
+        Ticket may override, agent never — ticket-derived overrides are intentionally not
+        wired to any request field yet; a future ticket integration sets ticket_test_cmd here."""
+        return self.provider.test_cmd(app, target_repo=target_repo) or os.environ.get("HOLO_TEST_CMD") or None
 
     def acquire(self, app: str, ticket: str, preview: Optional[int],
-                ttl_s: Optional[int], target_repo: Optional[str] = None) -> Lease:
+                ttl_s: Optional[int], target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> Lease:
         # target_repo is validated by the caller (api.py, against
         # provider.valid_target_repos(app)) BEFORE this is called — same boundary
         # `app` itself is already checked at, in api.py's route, not here.
@@ -151,8 +152,8 @@ class LeaseService:
         ttl = ttl_s or self.cfg.default_ttl_s
         lease = Lease(
             lease_id=lease_id, app=app, ticket=ticket, status=LeaseStatus.PENDING,
-            preview_port=port, ticket_test_cmd=self._resolve_test_cmd(app, ticket),
-            target_repo=target_repo,
+            preview_port=port, ticket_test_cmd=self._resolve_test_cmd(app, ticket, target_repo),
+            target_repo=target_repo, base_overrides=base_overrides,
             token=secrets.token_urlsafe(24),  # capability for the exec gateway
             expires_at=time.time() + ttl,
         )
@@ -217,7 +218,7 @@ class LeaseService:
         overwriting it — never resurrect to READY, never downgrade to FAILED."""
         lease_id = lease.lease_id
         try:
-            handle = self.provider.acquire(lease_id, app, ticket, port, lease.target_repo)
+            handle = self.provider.acquire(lease_id, app, ticket, port, lease.target_repo, lease.base_overrides)
         except WorkspaceExistsError as e:
             self.store.ports.release(port)
             self.store.delete(lease_id)
@@ -364,27 +365,40 @@ class LeaseService:
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
                  ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> Evidence:
         lease = self._require(lease_id)
-        test_cmd = lease.ticket_test_cmd  # never from the caller
+        test_cmd = self._resolve_test_cmd(lease.app, lease.ticket, lease.target_repo) or lease.ticket_test_cmd  # dynamic manifest lookup with lease fallback
         evidence = self.provider.finalize(lease.handle, test_cmd)
         # E2: finalize -> draft PR, guarded. Opening a PR is an outward-facing
         # side effect, so it runs only when enabled AND there is a real change
         # (a diff vs the golden). A PR failure never fails finalize — the evidence
         # is still the truth; the PR is a convenience carried on top of it.
-        if (self.cfg.pr_enabled and lease.handle is not None
-                and evidence.diff and evidence.diff.strip()):
-            try:
-                evidence.pr_url = self.provider.open_pr(
-                    lease.handle, base=self.cfg.pr_base, draft=self.cfg.pr_draft,
-                    title=_pr_title(lease, ticket_summary, issue_type),
-                    body=_pr_body(lease, evidence, self.cfg.jira_base_url, agent_summary,
-                                 self.cfg.workspace_preview_url(lease.preview_port, app=lease.app, ticket=lease.ticket)),
-                    label=self.cfg.pr_label or None)
-            except Exception:  # PR is best-effort — a missing `gh`, a push/auth
-                # failure, anything, must never fail finalize (the evidence is the
-                # truth). Was `except ProviderError`, which let a raw FileNotFoundError
-                # ('gh' not on the host) escape as a 500.
-                log.exception(
-                    "finalize: PR creation failed for %s (evidence still stamped)", lease_id)
+        #
+        # Guardrails (Phase 3 & Phase 4):
+        # 1. Exit 0 is mandatory! If a test was configured and failed or timed out, PR is blocked.
+        # 2. Host Guardrails (Blast radius and AST integrity) must pass! If violated, PR is blocked.
+        test_passed = (evidence.test_exit == 0) if evidence.test_cmd else True
+        guardrail_passed = getattr(evidence, "guardrail_passed", True)
+        if not evidence.test_timed_out and test_passed and guardrail_passed:
+            if (self.cfg.pr_enabled and lease.handle is not None
+                    and evidence.diff and evidence.diff.strip()):
+                try:
+                    evidence.pr_url = self.provider.open_pr(
+                        lease.handle, base=self.cfg.pr_base, draft=self.cfg.pr_draft,
+                        title=_pr_title(lease, ticket_summary, issue_type),
+                        body=_pr_body(lease, evidence, self.cfg.jira_base_url, agent_summary,
+                                     self.cfg.workspace_preview_url(lease.preview_port, app=lease.app, ticket=lease.ticket)),
+                        label=self.cfg.pr_label or None)
+                except Exception:  # PR is best-effort — a missing `gh`, a push/auth
+                    # failure, anything, must never fail finalize (the evidence is the
+                    # truth). Was `except ProviderError`, which let a raw FileNotFoundError
+                    # ('gh' not on the host) escape as a 500.
+                    log.exception(
+                        "finalize: PR creation failed for %s (evidence still stamped)", lease_id)
+        else:
+            log.warning(
+                "finalize: PR creation blocked for %s (test_cmd=%r, test_exit=%s, timed_out=%s, guardrail_passed=%s: %s)\n--- Test Suite Output ---\n%s\n------------------------",
+                lease_id, evidence.test_cmd, evidence.test_exit, evidence.test_timed_out,
+                guardrail_passed, getattr(evidence, "guardrail_reason", None),
+                evidence.test_output.strip() if evidence.test_output else "(no test output)")
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
         self.store.put(lease)
         return evidence

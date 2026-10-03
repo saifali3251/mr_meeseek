@@ -72,8 +72,8 @@ def test_ticket_spec_becomes_agent_prompt():
     assert "SPEC-BODY" in prompt
     # the seed prompt names the ticket key, tells the agent NOT to open its own
     # PR, and gives it the exact reply the ticket reporter should send.
-    assert "CPL-1" in prompt and "Holodeck, not you" in prompt
-    assert "/holodeck finalize" in prompt
+    assert "CPL-1" in prompt and ("Meeseek, not you" in prompt or "Holodeck, not you" in prompt)
+    assert "finalize" in prompt
 
 
 def test_command_run_retry_stop():

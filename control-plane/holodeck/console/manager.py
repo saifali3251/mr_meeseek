@@ -78,7 +78,9 @@ class ConsoleManager:
         self.driver = driver
 
     def trigger(self, ticket: str, app: Optional[str] = None,
-                prompt: Optional[str] = None, target_repo: Optional[str] = None) -> TaskRecord:
+                prompt: Optional[str] = None, target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None,
+                plan_only: bool = False) -> TaskRecord:
         # Resolve a display alias (e.g. "compliance") to the real manifest key
         # ("compliance-ui") BEFORE the lease API sees it — its allowlist only knows
         # real keys, so an unresolved alias is a 422. The /ops strike route does the
@@ -104,7 +106,7 @@ class ConsoleManager:
                     f"invalid target_repo {target_repo!r} for app {app!r} "
                     f"— must be one of {sorted(valid)}")
         try:
-            res = self.driver.start(ticket, app, prompt, target_repo)
+            res = self.driver.start(ticket, app, prompt, target_repo, base_overrides=base_overrides)
         except LeaseClientError as e:
             raise ConsoleError(str(e))
         preview_url = res.preview_url
@@ -115,6 +117,8 @@ class ConsoleManager:
             status=_PIPELINE.get(res.status, res.status),
             preview_url=preview_url, preview_port=res.preview_port,
             session_url=res.session_url,
+            workflow_state="PROVISIONING",
+            plan_only=plan_only,
         )
         self.store.put(rec)
         return rec
@@ -181,8 +185,13 @@ class ConsoleManager:
                         if _m:
                             rec.pr_url = _m.group(0)
                             break
-                if rec.waiting and rec.status == "ready":
-                    rec.status = "waiting-input"
+                if rec.waiting:
+                    rec.workflow_state = "WAITING_INPUT"
+                    if rec.status == "ready":
+                        rec.status = "waiting-input"
+                else:
+                    if rec.workflow_state in ("PROVISIONING", "WAITING_INPUT") and rec.status == "ready":
+                        rec.workflow_state = "CODING"
                 if not rec.waiting:
                     # cleared: re-arm the notice + drop the stale elicitation
                     rec.notified_waiting = False
@@ -201,12 +210,19 @@ class ConsoleManager:
         if rec is None:
             raise ConsoleNotFound(f"no task {ticket!r}")
         verdict = parse_verdict(text)
+        is_plan_approval = rec.plan_only and (verdict is True or text.strip().lower() in ("approve", "yes", "proceed"))
+        msg_to_send = text
+        if is_plan_approval:
+            msg_to_send = "Plan approved. You may now proceed directly with implementing the plan."
+            rec.plan_only = False
+            verdict = True
         try:
             if rec.elicitation_id and verdict is not None:
                 self.driver.answer(rec.session_id, rec.elicitation_id, verdict)
             else:
-                self.driver.reiterate(rec.session_id, text)
-                verdict = None  # routed as a message, not an approval
+                self.driver.reiterate(rec.session_id, msg_to_send)
+                if not is_plan_approval:
+                    verdict = None  # routed as a message, not an approval
         except DriverError as e:
             raise ConsoleError(str(e))
         rec.waiting = False
@@ -217,6 +233,7 @@ class ConsoleManager:
         rec.last_action_at = time.time()
         if rec.status == "waiting-input":
             rec.status = "ready"
+        rec.workflow_state = "CODING"
         self.store.put(rec)
         return rec, verdict
 
@@ -239,6 +256,7 @@ class ConsoleManager:
         rec.last_action_at = time.time()
         if rec.status == "waiting-input":
             rec.status = "ready"
+        rec.workflow_state = "CODING"
         self.store.put(rec)
         return rec
 
@@ -271,6 +289,13 @@ class ConsoleManager:
         if evidence.get("pr_url"):
             rec.pr_url = evidence["pr_url"]  # overwrite: the verified PR wins over any
                                               # self-reported one scraped from the transcript
+            rec.workflow_state = "CERTIFIED_PR"
+        elif not evidence.get("guardrail_passed", True):
+            rec.workflow_state = "GUARDRAIL_BLOCKED"
+        elif evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
+            rec.workflow_state = "NOTARY_FAILED"
+        else:
+            rec.workflow_state = "NOTARY_TESTING"
         rec.last_action = "finalized"
         rec.last_action_at = time.time()
         self.store.put(rec)
@@ -285,6 +310,7 @@ class ConsoleManager:
         except LeaseClientError:
             log.exception("release failed for task %s", ticket)
         rec.status = "released"
+        rec.workflow_state = "RELEASED"
         self.store.put(rec)
         return rec
 

@@ -23,7 +23,7 @@ TICKET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def holo_id(ticket: str) -> str:
-    """Mirror of lib.sh holo_id: 'JSQ-118' -> 'jsq-118'.
+    """Mirror of lib.sh holo_id: 'HACK-118' -> 'hack-118'.
 
     Must match the shell exactly, because the workspace dir / compose project
     are derived from it and we use it to detect ticket->id collisions (issue #7).
@@ -81,6 +81,8 @@ class WorkspaceHandle:
     # (falls back to the manifest's static HOLO_GIT_SUBDIR) or a composite lease
     # acquired without picking one.
     target_repo: Optional[str] = None
+    # For composite apps: map of repo -> git ref/branch to checkout as dependency
+    base_overrides: Optional[dict[str, str]] = None
     # seeded-row count captured once at strike (HOLO_SEED_PROOF_SQL) — a live status
     # signal shown on the console without a manual finalize. Best-effort: None if the
     # query didn't run. Does NOT gate provisioning.
@@ -138,6 +140,9 @@ class Evidence:
     # situation it refused to guess at) — see that method's own docstring. None
     # means the plain diff was trusted as-is, nothing anomalous detected.
     branch_note: Optional[str] = None
+    # Phase 4 guardrails: Blast radius audit and AST test integrity verification
+    guardrail_passed: bool = True
+    guardrail_reason: Optional[str] = None
 
 
 @dataclass
@@ -157,6 +162,7 @@ class Lease:
     # not threaded through _start_strike/_strike_safe/_advance_queue as an extra
     # parameter, since it's already available here wherever `lease` already is.
     target_repo: Optional[str] = None
+    base_overrides: Optional[dict[str, str]] = None
     evidence: Optional[Evidence] = None
     error: Optional[str] = None
     # per-lease capability token (deck's `teardown_token`): authorizes the

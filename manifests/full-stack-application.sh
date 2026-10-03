@@ -58,6 +58,15 @@ HOLO_GIT_SUBDIR=test_backend
 : "${HOLO_MIGRATE_CMD:=alembic upgrade head}"
 : "${HOLO_SEED_CMD:=python -m app.seed}"
 
+# Repo-specific test commands executed by the Host Notary
+HOLO_TEST_CMD_test_backend="PYTHONPATH=. pytest tests/"
+HOLO_TEST_CMD_test_frontend="npm run lint && npx tsc -b"
+: "${HOLO_TEST_CMD:=PYTHONPATH=. pytest tests/}"
+
+# Services corresponding to target repositories for test execution
+HOLO_TEST_SERVICE_test_backend="backend"
+HOLO_TEST_SERVICE_test_frontend="frontend"
+
 # No credential minting needed — every base image here is public, and both
 # repos (once real) are assumed public or reachable with the same
 # HOLODECK_GITHUB_PAT the box already uses for holodeck itself.

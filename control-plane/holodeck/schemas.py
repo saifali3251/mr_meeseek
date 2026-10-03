@@ -40,6 +40,9 @@ class AcquireRequest(BaseModel):
         None, description="for a composite app: which of its HOLO_COMPOSITE_REPOS this "
                           "lease's branch/diff/PR operate on; omit to fall back to the "
                           "manifest's static HOLO_GIT_SUBDIR")
+    base_overrides: Optional[dict[str, str]] = Field(
+        None, description="for a composite app: map of repo_name -> git ref/branch to checkout "
+                          "for upstream dependencies (e.g. {'test_backend': 'agent/fsa-10'})")
 
     @field_validator("ticket")
     @classmethod
@@ -104,6 +107,7 @@ class LeaseResponse(BaseModel):
     ws_dir: Optional[str] = None
     golden_head: Optional[str] = None
     target_repo: Optional[str] = None
+    base_overrides: Optional[dict[str, str]] = None
     # exec-gateway handle (deck's exec_url + teardown_token): connect a WebSocket
     # to exec_url and present `token` to run scoped commands in this lease.
     exec_url: Optional[str] = None
@@ -129,6 +133,8 @@ class EvidenceResponse(BaseModel):
     finalized_at: float
     pr_url: Optional[str] = None
     branch_note: Optional[str] = None
+    guardrail_passed: bool = True
+    guardrail_reason: Optional[str] = None
 
 
 class LeaseListResponse(BaseModel):

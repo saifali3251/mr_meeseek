@@ -47,8 +47,9 @@ class DirectDriver:
         self.client = lease_client
 
     def start(self, ticket: str, app: str, prompt: Optional[str] = None,
-             target_repo: Optional[str] = None) -> StartResult:
-        lease = self.client.acquire(app, ticket, target_repo)  # no agent session; prompt is unused
+              target_repo: Optional[str] = None,
+              base_overrides: Optional[dict[str, str]] = None) -> StartResult:
+        lease = self.client.acquire(app, ticket, target_repo, base_overrides=base_overrides)  # no agent session; prompt is unused
         port = _port(lease)
         return StartResult(lease["lease_id"], None, _url(port), port, lease.get("status", "ready"))
 
@@ -77,7 +78,8 @@ class OmnigentDriver:
         self.cfg = cfg
 
     def start(self, ticket: str, app: str, prompt: Optional[str] = None,
-             target_repo: Optional[str] = None) -> StartResult:
+              target_repo: Optional[str] = None,
+              base_overrides: Optional[dict[str, str]] = None) -> StartResult:
         # The ticket spec is the agent's prompt (from Jira); fall back to a stub.
         prompt = prompt or f"Implement ticket {ticket}."
         session_id = self.omni.start(ticket, app, prompt, target_repo)

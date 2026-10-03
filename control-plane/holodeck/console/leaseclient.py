@@ -23,7 +23,8 @@ class LeaseClientError(RuntimeError):
 
 @runtime_checkable
 class LeaseClient(Protocol):
-    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None) -> dict: ...
+    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> dict: ...
     def get(self, lease_id: str) -> Optional[dict]: ...
     def release(self, lease_id: str) -> None: ...
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
@@ -69,11 +70,14 @@ class HttpLeaseClient:
         except urllib.error.URLError as e:
             raise LeaseClientError(f"lease API unreachable at {self.base}: {e.reason}")
 
-    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None) -> dict:
+    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> dict:
         # preview/ttl omitted -> the lease API auto-allocates a port + default TTL.
         body_req = {"app": app, "ticket": ticket}
         if target_repo is not None:
             body_req["target_repo"] = target_repo
+        if base_overrides is not None:
+            body_req["base_overrides"] = base_overrides
         status, body = self._req("POST", "/leases", body_req)
         if status != 201 or body is None:
             raise LeaseClientError(f"acquire failed for {ticket!r} (HTTP {status})")
@@ -127,14 +131,16 @@ class FakeLeaseClient:
         # test knob: app -> allowed target_repo values, mirrors FakeProvider.composite_repos
         self.composite_repos: dict[str, set[str]] = {}
 
-    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None) -> dict:
+    def acquire(self, app: str, ticket: str, target_repo: Optional[str] = None,
+                base_overrides: Optional[dict[str, str]] = None) -> dict:
         lid = holo_id(ticket)
         existing = self._leases.get(lid)
         if existing is not None and existing["status"] != "released":
             raise LeaseClientError(f"lease {lid!r} already active")
         self._n += 1
         lease = {"lease_id": lid, "app": app, "ticket": ticket, "status": "ready",
-                 "preview_port": 18000 + self._n, "error": None, "target_repo": target_repo}
+                 "preview_port": 18000 + self._n, "error": None, "target_repo": target_repo,
+                 "base_overrides": base_overrides}
         self._leases[lid] = lease
         return lease
 
@@ -154,6 +160,7 @@ class FakeLeaseClient:
             "test_cmd": None, "test_exit": None, "test_output": "", "test_timed_out": False,
             "diff": "", "golden_head": None, "schema_rev": None, "services_booted": [],
             "services_absent": [], "finalized_at": 0.0, "pr_url": None,
+            "guardrail_passed": True, "guardrail_reason": None,
         })
 
     def valid_target_repos(self, app: str) -> set[str]:

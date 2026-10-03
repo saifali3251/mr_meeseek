@@ -66,6 +66,7 @@ class WorkspaceProvider(Protocol):
     def acquire(
         self, lease_id: str, app: str, ticket: str, preview_port: Optional[int],
         target_repo: Optional[str] = None,
+        base_overrides: Optional[dict[str, str]] = None,
     ) -> WorkspaceHandle:
         """Create a warm workspace and return a handle. Must be idempotent-safe:
         raise WorkspaceExistsError if one already exists for lease_id.
@@ -90,9 +91,9 @@ class WorkspaceProvider(Protocol):
         never the agent) under a wall-clock cap. Read nothing the agent wrote."""
         ...
 
-    def test_cmd(self, app: str) -> Optional[str]:
-        """The manifest's HOLO_TEST_CMD for `app` (the notary's targeted test), or
-        None. Read at acquire time and captured onto the lease so the agent — who
+    def test_cmd(self, app: str, target_repo: Optional[str] = None) -> Optional[str]:
+        """The manifest's HOLO_TEST_CMD for `app` (or repo-specific HOLO_TEST_CMD_<repo>),
+        or None. Read at acquire time and captured onto the lease so the agent — who
         only ever touches the workspace, never the manifest — cannot influence it."""
         ...
 

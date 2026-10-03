@@ -32,6 +32,7 @@ class FakeProvider:
     def acquire(
         self, lease_id: str, app: str, ticket: str, preview_port: Optional[int],
         target_repo: Optional[str] = None,
+        base_overrides: Optional[dict[str, str]] = None,
     ) -> WorkspaceHandle:
         if self.acquire_block is not None:
             self.acquire_block.wait()
@@ -49,6 +50,7 @@ class FakeProvider:
             golden_head="deadbeef",
             seed_rows=42,
             target_repo=target_repo,
+            base_overrides=base_overrides,
         )
         self._live[lease_id] = h
         return h
@@ -57,6 +59,8 @@ class FakeProvider:
         return set(self.composite_repos.get(app, set()))
 
     def finalize(self, handle: WorkspaceHandle, test_cmd: Optional[str]) -> Evidence:
+        guardrail_passed = getattr(self, "_guardrail_passed", True)
+        guardrail_reason = getattr(self, "_guardrail_reason", None)
         return Evidence(
             readiness="OK",
             readiness_ok=True,
@@ -70,6 +74,8 @@ class FakeProvider:
             schema_rev="head",
             services_booted=["webserver", "db"],
             services_absent=[],
+            guardrail_passed=guardrail_passed,
+            guardrail_reason=guardrail_reason,
         )
 
     def open_pr(self, handle: WorkspaceHandle, *, base: str, draft: bool,
@@ -77,7 +83,7 @@ class FakeProvider:
         # deterministic within a run; no network. Records the last body for assertions.
         self.last_pr = {"branch": f"agent/{handle.lease_id}", "base": base,
                         "draft": draft, "title": title, "body": body, "label": label}
-        return f"https://github.com/junipersquare/{handle.app}/pull/{(abs(hash(handle.lease_id)) % 900) + 100}"
+        return f"https://github.com/hackathon-org/{handle.app}/pull/{(abs(hash(handle.lease_id)) % 900) + 100}"
 
     def release(self, handle: WorkspaceHandle) -> None:
         self._live.pop(handle.lease_id, None)
@@ -128,7 +134,11 @@ class FakeProvider:
     ) -> None:
         self._files[(handle.lease_id, remote_path)] = content
 
-    def test_cmd(self, app: str) -> Optional[str]:
+    def test_cmd(self, app: str, target_repo: Optional[str] = None) -> Optional[str]:
+        if target_repo and hasattr(self, "manifest_test_cmd_by_repo"):
+            repo_cmd = getattr(self, "manifest_test_cmd_by_repo", {}).get(target_repo)
+            if repo_cmd:
+                return repo_cmd
         return self.manifest_test_cmd
 
     def prepare(self, app: Optional[str] = None) -> list[str]:
