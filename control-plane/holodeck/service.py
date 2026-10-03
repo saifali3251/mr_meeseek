@@ -365,7 +365,7 @@ class LeaseService:
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
                  ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> Evidence:
         lease = self._require(lease_id)
-        test_cmd = lease.ticket_test_cmd  # never from the caller
+        test_cmd = self._resolve_test_cmd(lease.app, lease.ticket, lease.target_repo) or lease.ticket_test_cmd  # dynamic manifest lookup with lease fallback
         evidence = self.provider.finalize(lease.handle, test_cmd)
         # E2: finalize -> draft PR, guarded. Opening a PR is an outward-facing
         # side effect, so it runs only when enabled AND there is a real change
