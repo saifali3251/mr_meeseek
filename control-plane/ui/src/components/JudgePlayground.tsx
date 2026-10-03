@@ -12,6 +12,7 @@ import {
   Terminal
 } from "lucide-react";
 import { strikeEnvironment } from "../api";
+import judgeMeeseek from "../assets/judge-meeseek.webp";
 
 interface JudgePlaygroundProps {
   onRefresh: () => void;
@@ -46,8 +47,20 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
   return (
     <div className="space-y-8">
       {/* Hero Evaluator Banner */}
-      <div className="glass-panel rounded-2xl p-8 border border-meeseek-border bg-gradient-to-br from-meeseek-900/90 via-meeseek-850/80 to-cyan-950/20 shadow-2xl relative overflow-hidden">
+      <div className="glass-panel rounded-2xl p-8 md:pr-[300px] md:min-h-[420px] md:flex md:flex-col md:justify-center border border-meeseek-border bg-gradient-to-br from-meeseek-900/90 via-meeseek-850/80 to-cyan-950/20 shadow-2xl relative overflow-hidden">
         <div className="absolute -top-12 -right-12 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Final-demo Meeseek: "I ship the PR!" */}
+        <figure className="judge-art hidden md:block absolute right-8 top-1/2 -translate-y-1/2 w-[230px] m-0">
+          <svg viewBox="100 20 620 1020" role="img" aria-label="Mr. Meeseeks: I ship the PR!" className="block w-full h-auto overflow-visible">
+            <image href={judgeMeeseek} x="109" y="389" width="560" height="642" />
+            <g className="judge-burst">
+              <polygon points="475,37 504,108 574,46 555,134 647,109 595,174 663,195 606,229 651,275 582,281 601,342 531,311 524,392 475,341 429,381 417,314 334,357 356,288 278,282 347,229 250,191 363,177 292,102 391,130 386,63 446,109" fill="#fff" stroke="#111" strokeWidth="5" strokeLinejoin="round" />
+              <text x="475" y="203" textAnchor="middle" textLength="210" lengthAdjust="spacingAndGlyphs" className="judge-pow">I SHIP</text>
+              <text x="475" y="277" textAnchor="middle" textLength="250" lengthAdjust="spacingAndGlyphs" className="judge-pow judge-pow-pr">THE PR!</text>
+            </g>
+          </svg>
+          <figcaption className="text-[11px] font-mono text-slate-400 text-center mt-2">Notary exit 0 &middot; PR certified &middot; workspace gone</figcaption>
+        </figure>
         
         <div className="flex items-center space-x-2 text-xs font-mono font-semibold uppercase text-cyan-400 tracking-wider">
           <Sparkles className="w-4 h-4 text-cyan-400" />
@@ -56,7 +69,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
         <h2 className="text-2xl font-extrabold text-white mt-2">
           Experience Autonomous Engineering in 60 Seconds
         </h2>
-        <p className="text-xs text-slate-300 mt-2 max-w-2xl leading-relaxed">
+        <p className="text-sm text-slate-300 mt-3 max-w-2xl leading-relaxed">
           No environment setup, no Docker builds, no API tokens required. Click any curated demo card below to watch Meeseek strike a 300ms Copy-on-Write sandbox, dispatch coding tasks, and certify a GitHub Pull Request via independent Host Notary proof!
         </p>
 
