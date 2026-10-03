@@ -32,10 +32,12 @@ export const App: React.FC = () => {
   const [isDestroying, setIsDestroying] = useState<boolean>(false);
   const [isExtending, setIsExtending] = useState<boolean>(false);
 
-  // Enforce sleek dark mode
+  // Day / night theme (matches the landing page). Saved per browser.
+  const [isDark, setIsDark] = useState<boolean>(() => document.documentElement.classList.contains("dark"));
   useEffect(() => {
-    document.documentElement.classList.add("dark");
-  }, []);
+    document.documentElement.classList.toggle("dark", isDark);
+    try { localStorage.setItem("meeseek-console-theme", isDark ? "dark" : "light"); } catch (e) {}
+  }, [isDark]);
 
   // Load ops state & onboarding requests
   const loadState = useCallback(async () => {
@@ -99,13 +101,15 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-meeseek-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
       <Header
         kpis={state?.kpis}
         team={state?.team || null}
         lastUpdated={lastUpdated}
         selectedRole={selectedRole}
+        isDark={isDark}
+        onToggleTheme={() => setIsDark((d) => !d)}
         onSelectRole={(role) => {
           setSelectedRole(role);
           if (role === "judge") setActiveTab("judge");
@@ -113,7 +117,7 @@ export const App: React.FC = () => {
       />
 
       {/* Fluid Subheader Navigation & Action Bar */}
-      <div className="border-b border-meeseek-border bg-meeseek-900/60 backdrop-blur-md">
+      <div className="border-b border-meeseek-border bg-meeseek-900/50 backdrop-blur-md sticky top-[73px] z-30">
         <div className="w-full px-6 lg:px-12 2xl:px-16">
           <div className="flex items-center justify-between h-14">
             {/* Primary Tabs */}
@@ -186,7 +190,33 @@ export const App: React.FC = () => {
         {/* TAB 1: WORKSPACES TABLE WITH EMBEDDED ACCORDION DAG */}
         {activeTab === "workspaces" && (
           <div className="space-y-6">
+            {/* Hero strip: who's working right now */}
+            <section className="mee-hero glass-panel rounded-2xl px-7 py-6 flex flex-wrap items-center justify-between gap-6">
+              <div className="min-w-0">
+                <span className="text-[11px] font-mono font-semibold uppercase tracking-[.14em] text-cyan-400">Meeseek Console</span>
+                <h2 className="text-2xl text-white mt-1">
+                  One ticket in. One verified PR out. <em>Nothing left behind.</em>
+                </h2>
+                <p className="text-sm text-slate-400 mt-2 max-w-xl">
+                  Every workspace below is a Meeseek summoned for a single ticket. Watch it work, review the live preview, then let it go.
+                </p>
+              </div>
+              <div className="flex items-stretch gap-3">
+                {[
+                  { label: "Live workspaces", value: state?.kpis?.live ?? 0, tone: "text-cyan-400" },
+                  { label: "Golden images ready", value: `${state?.kpis?.environments_ready ?? 0}/${state?.kpis?.environments_total ?? 0}`, tone: "text-emerald-400" },
+                  { label: "Capacity", value: state?.kpis?.max_leases ?? 0, tone: "text-purple-400" },
+                ].map((k) => (
+                  <div key={k.label} className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[118px]">
+                    <div className="mee-stat">{k.value}</div>
+                    <div className={`text-[11px] font-mono uppercase tracking-wider mt-1.5 ${k.tone}`}>{k.label}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
             <WorkspacesTable
+              onSummon={() => setIsStrikeModalOpen(true)}
               leases={state?.leases || []}
               tasks={state?.runs || []}
               jiraBaseUrl={state?.jira_base || ""}
@@ -221,10 +251,11 @@ export const App: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-meeseek-border py-4 text-center text-xs text-slate-500 bg-meeseek-950">
-        <p>
-          Meeseek &bull; Cloud-hosted sandbox with agentic capability &bull; AI Builder Cup Hackathon
-        </p>
+      <footer className="border-t border-meeseek-border py-5 text-xs text-slate-500 bg-meeseek-900/40 backdrop-blur-sm">
+        <div className="w-full px-6 lg:px-12 2xl:px-16 flex flex-wrap items-center justify-between gap-2">
+          <span>Meeseek &middot; Autonomous Junior Engineer &middot; AI Builder Cup Hackathon</span>
+          <span className="font-mono">ticket &rarr; certified PR &rarr; live preview</span>
+        </div>
       </footer>
 
       {/* Strike Modal */}

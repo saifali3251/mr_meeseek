@@ -7,6 +7,7 @@ import {
   Users
 } from "lucide-react";
 import { KPIs, Team } from "../types";
+import meeseekIcon from "../assets/meeseek-icon.webp";
 
 export type Role = "admin" | "team" | "judge";
 
@@ -16,12 +17,16 @@ interface HeaderProps {
   lastUpdated: string;
   selectedRole: Role;
   onSelectRole: (role: Role) => void;
+  isDark: boolean;
+  onToggleTheme: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   team,
   selectedRole,
   onSelectRole,
+  isDark,
+  onToggleTheme,
 }) => {
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -68,40 +73,51 @@ export const Header: React.FC<HeaderProps> = ({
   const CurrentIcon = currentRole.icon;
 
   return (
-    <header className="border-b border-meeseek-border bg-meeseek-950/90 backdrop-blur-md sticky top-0 z-40">
+    <header className="border-b border-meeseek-border bg-meeseek-900/70 backdrop-blur-md sticky top-0 z-40">
       <div className="w-full px-6 lg:px-12 2xl:px-16">
-        <div className="flex items-center justify-between h-16">
-          {/* Brand Logo & Tagline */}
-          <div className="flex items-center space-x-3.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <Rocket className="w-5 h-5 text-white" />
-            </div>
+        <div className="flex items-center justify-between h-[72px]">
+          {/* Brand: Meeseeks icon + serif wordmark (matches the landing page) */}
+          <a href="./" className="mee-brand flex items-center space-x-3.5 no-underline">
+            <img src={meeseekIcon} alt="" width={42} height={42} className="mee-logo" />
             <div>
               <div className="flex items-center space-x-2.5">
-                <span className="text-xl font-bold tracking-tight text-white">
-                  Meeseek
-                </span>
-                <span className="px-2.5 py-0.5 text-xs font-mono font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  Agentic Sandbox
+                <span className="mee-wordmark text-white">Meeseek</span>
+                <span className="px-2.5 py-0.5 text-[11px] font-mono font-semibold rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 uppercase tracking-wider">
+                  Console
                 </span>
               </div>
-              <p className="text-sm text-slate-300 font-medium">
-                cloud-hosted sandbox with agentic capability
+              <p className="text-[13px] text-slate-400 font-medium mt-0.5">
+                Summoned for one ticket &middot; gone when it's done
               </p>
             </div>
-          </div>
+          </a>
 
           {/* Right Bar: Role Dropdown (Live Sync removed as requested) */}
           <div className="flex items-center space-x-4">
+            {/* Day / night toggle */}
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              className="theme-toggle"
+              aria-pressed={isDark}
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              title={isDark ? "Light mode" : "Dark mode"}
+            >
+              <span className="tt-sky" />
+              <span className="tt-stars" aria-hidden="true"><i /><i /><i /><i /></span>
+              <span className="tt-clouds" aria-hidden="true"><i /><i /><i /></span>
+              <span className="tt-knob" aria-hidden="true"><i className="crater c1" /><i className="crater c2" /><i className="crater c3" /></span>
+            </button>
+
             {/* Single Role Dropdown */}
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-                className="flex items-center space-x-2.5 px-4 py-2 rounded-xl bg-meeseek-900 hover:bg-meeseek-850 text-slate-200 border border-meeseek-border text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                className="flex items-center space-x-2.5 px-4 py-2 rounded-xl bg-meeseek-900/80 hover:bg-meeseek-850 text-slate-200 border border-meeseek-border text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
               >
                 <CurrentIcon className={`w-4 h-4 ${currentRole.color}`} />
                 <span>{currentRole.label}</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 uppercase font-mono font-semibold">
+                <span className="text-xs px-2 py-0.5 rounded bg-meeseek-800 text-slate-400 uppercase font-mono font-semibold">
                   {currentRole.badge}
                 </span>
                 <ChevronDown className="w-4 h-4 text-slate-400 ml-1" />
