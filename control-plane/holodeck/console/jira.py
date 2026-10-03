@@ -84,14 +84,16 @@ def _added_labels(from_s: str, to_s: str) -> list[str]:
 _INLINE_RE = re.compile(
     r"\[(?P<link_text>[^\]]+)\]\((?P<link_url>[^)\s]+)\)"
     r"|\*\*(?P<bold>[^*]+)\*\*"
+    r"|\*(?P<italic>[^*]+)\*"
+    r"|_(?P<italic_u>[^_]+)_"
     r"|`(?P<code>[^`]+)`"
 )
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-_BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
+_BULLET_RE = re.compile(r"^[-*•]\s+(.*)$")
 
 
 def _inline_nodes(text: str) -> list[dict]:
-    """Parse **bold** / `code` / [text](url) within one line into ADF text
+    """Parse **bold** / *italic* / `code` / [text](url) within one line into ADF text
     nodes with marks; everything else passes through as plain text."""
     nodes: list[dict] = []
     pos = 0
@@ -104,6 +106,12 @@ def _inline_nodes(text: str) -> list[dict]:
         elif m.group("bold") is not None:
             nodes.append({"type": "text", "text": m.group("bold"),
                           "marks": [{"type": "strong"}]})
+        elif m.group("italic") is not None:
+            nodes.append({"type": "text", "text": m.group("italic"),
+                          "marks": [{"type": "em"}]})
+        elif m.group("italic_u") is not None:
+            nodes.append({"type": "text", "text": m.group("italic_u"),
+                          "marks": [{"type": "em"}]})
         elif m.group("code") is not None:
             nodes.append({"type": "text", "text": m.group("code"),
                           "marks": [{"type": "code"}]})
@@ -114,15 +122,14 @@ def _inline_nodes(text: str) -> list[dict]:
 
 
 def _markdown_to_adf_blocks(body: str) -> list[dict]:
-    """Line-by-line -> ADF block nodes. A heading line always starts (and ends)
-    its own block, even with no blank line before/after it — real narration
-    routinely writes '## Heading\\n- bullet' with no gap. Consecutive bullet
-    lines merge into one bulletList; consecutive plain lines merge into one
-    paragraph (joined by hardBreaks); a blank line or a change in line kind
-    (heading/bullet/plain) ends whatever block is currently open."""
+    """Line-by-line -> ADF block nodes. Supports headings, bullet lists (including '•'),
+    code blocks (```), and paragraphs."""
     blocks: list[dict] = []
     bullets: list[str] = []
     para: list[str] = []
+    in_code = False
+    code_lang = "text"
+    code_lines: list[str] = []
 
     def flush_bullets() -> None:
         if bullets:
@@ -144,6 +151,28 @@ def _markdown_to_adf_blocks(body: str) -> list[dict]:
 
     for raw_line in body.strip().split("\n"):
         line = raw_line.strip()
+        if in_code:
+            if line.startswith("```"):
+                in_code = False
+                c_text = "\n".join(code_lines)
+                blocks.append({
+                    "type": "codeBlock",
+                    "attrs": {"language": code_lang or "text"},
+                    "content": [{"type": "text", "text": c_text or " "}]
+                })
+                code_lines.clear()
+            else:
+                code_lines.append(raw_line)
+            continue
+
+        if line.startswith("```"):
+            flush_bullets()
+            flush_para()
+            in_code = True
+            code_lang = line[3:].strip() or "text"
+            code_lines = []
+            continue
+
         if not line:
             flush_bullets()
             flush_para()
@@ -163,6 +192,7 @@ def _markdown_to_adf_blocks(body: str) -> list[dict]:
             continue
         flush_bullets()
         para.append(line)
+
     flush_bullets()
     flush_para()
     return blocks or [{"type": "paragraph", "content": []}]

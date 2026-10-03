@@ -535,13 +535,20 @@ class ComposeProvider:
         test_output, timed_out = "", False
         if test_cmd:
             svc = self._test_service(handle.app, handle.target_repo, m)
+            log.info("finalize: executing test_cmd in container '%s': %s", svc, test_cmd)
             tr = self._run(dc + ["exec", "-T", svc, "sh", "-lc", test_cmd], ws, env,
                            timeout=self.cfg.finalize_timeout_s)
             if tr is None:  # timed out (issue #6): record, don't raise.
                 timed_out, test_output = True, "test exceeded finalize timeout"
+                log.warning("finalize: test_cmd timed out after %ss: %s", self.cfg.finalize_timeout_s, test_cmd)
             else:
                 test_exit = tr.returncode
                 test_output = ((tr.stdout or "") + (tr.stderr or ""))[-8000:]
+                if test_exit == 0:
+                    log.info("finalize: test_cmd passed with Exit 0 in container '%s'", svc)
+                else:
+                    log.warning("finalize: test_cmd failed with exit code %s in container '%s':\n%s",
+                                test_exit, svc, test_output.strip())
 
         # Guardrail audits (Phase 4): Blast Radius & AST Test Integrity
         guardrail_passed = True

@@ -395,9 +395,10 @@ class LeaseService:
                         "finalize: PR creation failed for %s (evidence still stamped)", lease_id)
         else:
             log.warning(
-                "finalize: PR creation blocked for %s (test_passed=%s, timed_out=%s, guardrail_passed=%s: %s)",
-                lease_id, test_passed, evidence.test_timed_out,
-                guardrail_passed, getattr(evidence, "guardrail_reason", None))
+                "finalize: PR creation blocked for %s (test_cmd=%r, test_exit=%s, timed_out=%s, guardrail_passed=%s: %s)\n--- Test Suite Output ---\n%s\n------------------------",
+                lease_id, evidence.test_cmd, evidence.test_exit, evidence.test_timed_out,
+                guardrail_passed, getattr(evidence, "guardrail_reason", None),
+                evidence.test_output.strip() if evidence.test_output else "(no test output)")
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
         self.store.put(lease)
         return evidence

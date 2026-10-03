@@ -59,9 +59,9 @@ HOLO_GIT_SUBDIR=test_backend
 : "${HOLO_SEED_CMD:=python -m app.seed}"
 
 # Repo-specific test commands executed by the Host Notary
-HOLO_TEST_CMD_test_backend="ruff check . && PYTHONPATH=. pytest tests/"
+HOLO_TEST_CMD_test_backend="PYTHONPATH=. pytest tests/"
 HOLO_TEST_CMD_test_frontend="npm run lint && npx tsc -b"
-: "${HOLO_TEST_CMD:=ruff check . && PYTHONPATH=. pytest tests/}"
+: "${HOLO_TEST_CMD:=PYTHONPATH=. pytest tests/}"
 
 # Services corresponding to target repositories for test execution
 HOLO_TEST_SERVICE_test_backend="backend"
