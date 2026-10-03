@@ -125,6 +125,22 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
               const isExpanded = expandedLeaseId === lease.lease_id;
               const jiraLink = jiraBaseUrl ? `${jiraBaseUrl.replace(/\/$/, "")}/browse/${lease.ticket}` : null;
 
+              const testExit = task?.evidence?.test_exit ?? lease.evidence?.test_exit;
+              const isNotaryFailed =
+                task?.workflow_state === "NOTARY_FAILED" ||
+                (testExit !== undefined && testExit !== 0) ||
+                task?.evidence?.test_timed_out ||
+                lease.evidence?.test_timed_out;
+              const isGuardrailBlocked =
+                task?.workflow_state === "GUARDRAIL_BLOCKED" ||
+                task?.evidence?.guardrail_passed === false ||
+                lease.evidence?.guardrail_passed === false;
+              const isPRReady =
+                lease.pr_url || task?.evidence?.pr_url || task?.workflow_state === "CERTIFIED_PR";
+              const isAwaitingReview =
+                task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT";
+              const isPreviewReady = lease.status === "ready" && !!lease.preview_url;
+
               return (
                 <React.Fragment key={lease.lease_id}>
                   {/* Workspace Summary Row */}
@@ -179,12 +195,25 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
                     {/* State Badge */}
                     <td className="py-4 px-4">
-                      {lease.pr_url || task?.evidence?.pr_url ? (
+                      {isNotaryFailed ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/15 text-red-300 border border-red-500/40 shadow-sm shadow-red-500/10">
+                          <span className="relative flex h-2 w-2 mr-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-400"></span>
+                          </span>
+                          Host Notary Failed {testExit !== undefined ? `(Exit ${testExit})` : ""}
+                        </span>
+                      ) : isGuardrailBlocked ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/15 text-red-300 border border-red-500/40 shadow-sm shadow-red-500/10">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5"></span>
+                          Guardrail Blocked
+                        </span>
+                      ) : isPRReady ? (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5"></span>
                           PR Delivered (Exit 0)
                         </span>
-                      ) : task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT" ? (
+                      ) : isAwaitingReview ? (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10">
                           <span className="relative flex h-2 w-2 mr-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
@@ -207,7 +236,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
                     {/* Live Preview Link */}
                     <td className="py-4 px-4">
-                      {lease.preview_url ? (
+                      {isPreviewReady ? (
                         <a
                           href={lease.preview_url}
                           target="_blank"
@@ -220,7 +249,14 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       ) : (
-                        <span className="text-slate-500 font-mono text-xs">Port {lease.preview_port || 18000}</span>
+                        <span className="text-slate-500 font-mono text-xs inline-flex items-center space-x-1.5">
+                          <span>Port {lease.preview_port || 18000}</span>
+                          {(lease.status === "pending" || lease.status === "queued" || !lease.status) && (
+                            <span className="text-amber-400/80 text-[10px] font-sans font-medium px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                              Booting...
+                            </span>
+                          )}
+                        </span>
                       )}
                     </td>
 

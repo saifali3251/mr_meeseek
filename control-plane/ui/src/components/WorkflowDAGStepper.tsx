@@ -69,9 +69,27 @@ const STAGES: StageDefinition[] = [
 
 function getStageIndex(state?: WorkflowState, lease?: Lease, task?: TaskRecord): number {
   if (lease?.pr_url || task?.evidence?.pr_url) return 5; // Step 6: PR Delivered
-  if (state === "PR_OPENED") return 5;
-  if (state === "NOTARY_VERIFYING") return 4; // Step 5: Host Notary Verification
-  if (state === "GUARDRAIL_BLOCKED" || state === "FAILED") return 4;
+  if (state === "PR_OPENED" || state === "CERTIFIED_PR") return 5;
+
+  const testExit = task?.evidence?.test_exit ?? lease?.evidence?.test_exit;
+  const isFailedNotary =
+    state === "NOTARY_FAILED" ||
+    (testExit !== undefined && testExit !== 0) ||
+    task?.evidence?.test_timed_out ||
+    lease?.evidence?.test_timed_out;
+  const isGuardrailBlocked =
+    state === "GUARDRAIL_BLOCKED" ||
+    task?.evidence?.guardrail_passed === false ||
+    lease?.evidence?.guardrail_passed === false;
+
+  if (isFailedNotary || isGuardrailBlocked || state === "CIRCUIT_BREAKER_HALTED" || state === "FAILED") {
+    return 4; // Step 5: Host Notary Verification (Failed / Blocked)
+  }
+
+  if (state === "NOTARY_VERIFYING" || state === "NOTARY_TESTING" || state === "NOTARY_CORRECTING") {
+    return 4; // Step 5: Host Notary Verification (Running)
+  }
+
   if (state === "HALTED" || task?.halted || state === "WAITING_INPUT") return 3; // Step 4: Live Preview & Review
   if (state === "CODING") return 2; // Step 3: Agent Implementation
   if (state === "BOOTING" || state === "STRIKING") return 1; // Step 2: Environment Ready
@@ -79,7 +97,7 @@ function getStageIndex(state?: WorkflowState, lease?: Lease, task?: TaskRecord):
   
   if (lease?.status === "ready") {
     if (lease.evidence?.test_exit === 0) return 5;
-    if (lease.evidence?.test_cmd) return 4;
+    if (lease.evidence?.test_cmd || lease.evidence?.test_exit !== undefined) return 4;
     return 3;
   }
   return 0;
@@ -169,8 +187,17 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
     (currentIdx === 3 || task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
     activeInspectStage.key === "PREVIEW";
 
-  const isFailed = task?.workflow_state === "FAILED" || (task?.evidence && task.evidence.test_exit !== undefined && task.evidence.test_exit !== 0);
-  const isGuardrailBlocked = task?.workflow_state === "GUARDRAIL_BLOCKED" || (task?.evidence?.guardrail_passed === false);
+  const testExit = task?.evidence?.test_exit ?? lease?.evidence?.test_exit;
+  const isFailed =
+    task?.workflow_state === "FAILED" ||
+    task?.workflow_state === "NOTARY_FAILED" ||
+    (testExit !== undefined && testExit !== 0) ||
+    task?.evidence?.test_timed_out ||
+    lease?.evidence?.test_timed_out;
+  const isGuardrailBlocked =
+    task?.workflow_state === "GUARDRAIL_BLOCKED" ||
+    task?.evidence?.guardrail_passed === false ||
+    lease?.evidence?.guardrail_passed === false;
 
   const dynamicDescription = getStageDescription(activeInspectStage.key, stageStatus);
 
@@ -376,7 +403,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                     Test the agent's changes live in your browser before requesting final Host Notary verification.
                   </p>
                 </div>
-                {lease?.preview_url ? (
+                {lease?.status === "ready" && lease?.preview_url ? (
                   <a
                     href={lease.preview_url}
                     target="_blank"
@@ -387,8 +414,9 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                     <ExternalLink className="w-4 h-4 ml-1" />
                   </a>
                 ) : (
-                  <span className="px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-mono text-xs">
-                    Preview Port {lease?.preview_port || 18000} Active
+                  <span className="px-3.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-slate-400 font-mono text-xs inline-flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span>Preview Booting (Port {lease?.preview_port || 18000})</span>
                   </span>
                 )}
               </div>
@@ -479,7 +507,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                   ) : isFailed ? (
                     <span className="text-red-400 font-bold flex items-center space-x-1 mt-1 text-sm">
                       <AlertTriangle className="w-4 h-4 mr-1" />
-                      <span>Failed (Exit {lease?.evidence?.test_exit ?? 1})</span>
+                      <span>Failed (Exit {testExit ?? 1})</span>
                     </span>
                   ) : (
                     <span className="text-amber-400 italic mt-1 block font-medium">
@@ -496,6 +524,19 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                   <span className="text-slate-300">sha256:7f8e9a2b... [Certified Host]</span>
                 </div>
               </div>
+
+              {/* Traceback output on failure */}
+              {isFailed && (lease?.evidence?.test_output || task?.evidence?.test_output) && (
+                <div className="mt-3 p-3 rounded-lg bg-black/60 border border-red-500/30 font-mono text-xs">
+                  <div className="text-red-400 font-bold mb-1 flex items-center space-x-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Failure Traceback:</span>
+                  </div>
+                  <pre className="text-red-300 text-[11px] whitespace-pre-wrap overflow-x-auto max-h-44 p-2 rounded bg-slate-950 border border-slate-800">
+                    {lease?.evidence?.test_output || task?.evidence?.test_output}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
 

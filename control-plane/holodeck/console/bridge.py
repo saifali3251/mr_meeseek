@@ -75,6 +75,10 @@ You must strictly adhere to the architecture conventions, typing rules, and pre-
 Scope the ticket and share your implementation plan, then proceed directly to \
 implementing it — no need to stop and wait for approval first.
 
+EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
+1. Preferred: If a coding sub-agent CLI (e.g. claude, codex, opencodex, cursor-agent, hermes, pi, or agy) is installed in this machine's PATH, you may dispatch the implementation plan to it.
+2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
+
 Do not push a branch or open a pull request yourself, even a draft — that step \
 belongs to Meeseek, not you. Commit your work on the branch that's already \
 checked out in this session — do not create or switch to a new branch, even one \
@@ -125,8 +129,9 @@ When you post your plan that reaches the ticket reporter, keep it focused on the
 # The FINISH hand-off convention _BEHAVIOR_PREAMBLE mandates the agent write
 # once it's actually done (not on interim status updates). Used by
 # JiraBridge._check_halt as a second, narrow gate alongside session_state ==
-# "idle" — a fixed phrase we ourselves require, not a guess at wording.
+# "idle" — fixed phrases we check for hand-off / blocker states.
 _FINISH_MARKER = "Your action:"
+_HANDOFF_MARKERS = ("Your action:", "What I need from you", "Blocker.")
 
 
 def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
@@ -571,7 +576,8 @@ class JiraBridge:
                 rec.halted = False
                 self.manager.store.put(rec)
             return
-        if not rec.stable_agent_message or _FINISH_MARKER not in rec.stable_agent_message:
+        has_handoff = any(m in (rec.stable_agent_message or "") for m in _HANDOFF_MARKERS)
+        if not rec.stable_agent_message or not has_handoff:
             return  # idle, but hasn't actually handed off yet (e.g. mid-dispatch)
         if rec.halted:
             return  # already signaled for this idle period
@@ -582,7 +588,8 @@ class JiraBridge:
             log.exception("jira set_labels (halt) failed for %s", rec.ticket)
             return  # retry next tick
         rec.halted = True
-        if rec.plan_only:
+        msg = rec.stable_agent_message or ""
+        if rec.plan_only or "Blocker." in msg or "What I need from you" in msg:
             rec.workflow_state = "WAITING_INPUT"
             self._say(
                 rec.ticket,
