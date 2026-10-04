@@ -200,7 +200,7 @@ export const App: React.FC = () => {
 
   // If not authenticated, render LoginPage
   if (!authUser) {
-    return <LoginPage onLogin={handleLogin} />;
+    return <LoginPage onLogin={handleLogin} isDark={isDark} onToggleTheme={() => setIsDark((d) => !d)} />;
   }
 
   return (
