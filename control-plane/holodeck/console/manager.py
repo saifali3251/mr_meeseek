@@ -77,6 +77,18 @@ class ConsoleManager:
         self.store = store
         self.client = lease_client
         self.driver = driver
+        self._change_listeners: list = []
+
+    def add_change_listener(self, fn) -> None:
+        if fn not in self._change_listeners:
+            self._change_listeners.append(fn)
+
+    def _notify_change(self) -> None:
+        for fn in list(self._change_listeners):
+            try:
+                fn()
+            except Exception:
+                log.exception("console change listener failed")
 
     def trigger(self, ticket: str, app: Optional[str] = None,
                 prompt: Optional[str] = None, target_repo: Optional[str] = None,
@@ -119,11 +131,13 @@ class ConsoleManager:
             plan_only=plan_only,
         )
         self.store.put(rec)
+        self._notify_change()
         return rec
 
     def refresh(self) -> None:
         """Re-derive each live task's state from the lease API (+ Omnigent). Never
         raises — the poller must survive a bad tick."""
+        changed = False
         for rec in self.store.all():
             if rec.is_terminal:
                 continue
@@ -160,18 +174,26 @@ class ConsoleManager:
                     rec.session_url = st.session_url
                 rec.session_state = st.state
                 if st.latest_message:
-                    # A still-running session (e.g. waiting on a dispatched sub-agent)
-                    # never goes "idle" until the whole turn ends, so relay-readiness
-                    # comes from the message having stopped changing across polls,
-                    # not from session_state — unchanged since last refresh() means
-                    # it's sat there through at least one full poll interval.
-                    if st.latest_message == rec.agent_message:
+                    # Fast-path: if the message stopped changing across polls, or if
+                    # the agent explicitly handed off ("Your action:"), or if the session
+                    # went idle, promote immediately so Jira updates and UI don't lag.
+                    has_handoff = any(m in st.latest_message for m in (
+                        "Your action:", "What I need from you", "Blocker.", "/meeseek finalize", "/holodeck finalize"
+                    ))
+                    if st.latest_message == rec.agent_message or has_handoff or st.state == "idle":
                         rec.stable_agent_message = st.latest_message
                     rec.agent_message = st.latest_message
                 if st.workspace:
                     rec.workspace = st.workspace   # the managed sandbox id, for lease<->ticket mapping
                 if st.pr_url:
                     rec.pr_url = st.pr_url          # PR the agent opened itself (from the transcript)
+                # Recover verified PR URL from host lease evidence if present
+                if lease and isinstance(lease, dict):
+                    lease_ev = lease.get("evidence") or {}
+                    if lease_ev.get("pr_url"):
+                        rec.pr_url = lease_ev["pr_url"]
+                    elif lease.get("pr_url"):
+                        rec.pr_url = lease["pr_url"]
                 if not rec.pr_url:
                     # Belt-and-suspenders: recover the PR link from the agent's own
                     # message text — the same "PR is up: <url>" line we relay to Jira,
@@ -183,12 +205,21 @@ class ConsoleManager:
                         if _m:
                             rec.pr_url = _m.group(0)
                             break
-                if rec.waiting:
+
+                # Update workflow state machine: verified PR / notary outcomes are sticky
+                if rec.pr_url or rec.workflow_state in ("CERTIFIED_PR", "PR_OPENED"):
+                    rec.workflow_state = "CERTIFIED_PR"
+                    rec.halted = False
+                elif rec.workflow_state in ("GUARDRAIL_BLOCKED", "NOTARY_FAILED", "NOTARY_TESTING"):
+                    pass  # keep notary status, do not regress to waiting-input
+                elif rec.waiting:
                     rec.workflow_state = "WAITING_INPUT"
                     if rec.status == "ready":
                         rec.status = "waiting-input"
+                elif rec.halted or (rec.stable_agent_message and any(m in rec.stable_agent_message for m in ("Your action:", "What I need from you", "Blocker."))):
+                    rec.workflow_state = "WAITING_INPUT"
                 else:
-                    if rec.workflow_state in ("PROVISIONING", "WAITING_INPUT", "QUEUED") and rec.status == "ready":
+                    if rec.workflow_state in ("PROVISIONING", "QUEUED") and rec.status == "ready":
                         rec.workflow_state = "CODING"
                 if not rec.waiting:
                     # cleared: re-arm the notice + drop the stale elicitation
@@ -196,8 +227,11 @@ class ConsoleManager:
                     rec.elicitation_id = None
                     rec.question = None
                 self.store.put(rec)
+                changed = True
             except Exception:
                 log.exception("refresh failed for task %s", rec.ticket)
+        if changed:
+            self._notify_change()
 
     def answer(self, ticket: str, text: str) -> tuple[TaskRecord, Optional[bool]]:
         """Human reply from Jira. If the agent is blocked on an elicitation and
@@ -233,6 +267,7 @@ class ConsoleManager:
             rec.status = "ready"
         rec.workflow_state = "CODING"
         self.store.put(rec)
+        self._notify_change()
         return rec, verdict
 
     def reiterate(self, ticket: str, feedback: str) -> TaskRecord:
@@ -256,6 +291,7 @@ class ConsoleManager:
             rec.status = "ready"
         rec.workflow_state = "CODING"
         self.store.put(rec)
+        self._notify_change()
         return rec
 
     def finalize(self, ticket: str, *, ticket_summary: Optional[str] = None,
@@ -297,6 +333,7 @@ class ConsoleManager:
         rec.last_action = "finalized"
         rec.last_action_at = time.time()
         self.store.put(rec)
+        self._notify_change()
         return rec, evidence
 
     def release(self, ticket: str) -> TaskRecord:
@@ -310,6 +347,7 @@ class ConsoleManager:
         rec.status = "released"
         rec.workflow_state = "RELEASED"
         self.store.put(rec)
+        self._notify_change()
         return rec
 
     def _tunnel_cmd(self, rec: TaskRecord) -> Optional[str]:

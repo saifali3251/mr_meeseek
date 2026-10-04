@@ -580,6 +580,11 @@ class JiraBridge:
         `rec.halted` is the edge-trigger: set once when we swap the label,
         cleared the moment `session_state` moves off "idle" again (a new turn
         started) so the ticket correctly re-halts the next time it goes idle."""
+        if (rec.workflow_state in ("CERTIFIED_PR", "PR_OPENED", "RELEASED", "FAILED", "NOTARY_FAILED", "GUARDRAIL_BLOCKED")
+                or rec.last_action == "finalized"
+                or rec.pr_url):
+            return  # Already finalized or delivered — never regress back to halted
+
         if rec.session_state != "idle" or rec.waiting:
             if rec.halted:  # left "idle" (or picked up an elicitation) -> re-arm
                 rec.halted = False
@@ -597,9 +602,9 @@ class JiraBridge:
             log.exception("jira set_labels (halt) failed for %s", rec.ticket)
             return  # retry next tick
         rec.halted = True
+        rec.workflow_state = "WAITING_INPUT"
         msg = rec.stable_agent_message or ""
         if rec.plan_only or "Blocker." in msg or "What I need from you" in msg:
-            rec.workflow_state = "WAITING_INPUT"
             self._say(
                 rec.ticket,
                 f"⏸️ **Meeseek Implementation Plan Ready for Review**\n\n"

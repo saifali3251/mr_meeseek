@@ -407,7 +407,10 @@ def create_app(cfg: Config, service: LeaseService,
     # Operator Console (Track E): the single-screen env + workspace + evidence UI.
     # Its browser-facing routes talk to `service` in-process (no shared token in
     # the page), matching the /console task board's loopback posture.
-    app.include_router(build_ops_router(service, cfg, teams))
+    ops_router = build_ops_router(service, cfg, teams)
+    app.include_router(ops_router)
+    if hasattr(ops_router, "broadcaster"):
+        app.state.broadcaster = ops_router.broadcaster
 
     # Automatic onboarding (docs/AUTOMATIC_ONBOARDING.md) — off unless the
     # caller wired both a TeamStore and an OnboardingService (see factory.py's

@@ -221,3 +221,30 @@ export async function login(username: string, password: string): Promise<AuthUse
   return res.json();
 }
 
+export interface JiraVerifyResult {
+  connected: boolean;
+  exists: boolean | null;
+  ticket: string;
+  summary?: string;
+  issuetype?: string;
+  labels?: string[];
+  reason?: string;
+  detail?: string;
+}
+
+export async function verifyJiraTicket(ticket: string): Promise<JiraVerifyResult> {
+  try {
+    const clean = encodeURIComponent(ticket.trim().toUpperCase());
+    const res = await fetch(`${BASE_URL}/ops/jira/verify/${clean}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      return { connected: false, exists: null, ticket };
+    }
+    return await res.json();
+  } catch (e) {
+    return { connected: false, exists: null, ticket };
+  }
+}
+
+

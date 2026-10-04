@@ -138,11 +138,15 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                 task?.workflow_state === "GUARDRAIL_BLOCKED" ||
                 task?.evidence?.guardrail_passed === false ||
                 lease.evidence?.guardrail_passed === false;
-              const isPRReady =
-                lease.pr_url || task?.evidence?.pr_url || task?.workflow_state === "CERTIFIED_PR";
+              const prUrl =
+                lease.pr_url ||
+                lease.evidence?.pr_url ||
+                task?.pr_url ||
+                task?.evidence?.pr_url;
+              const isPRReady = Boolean(prUrl || task?.workflow_state === "CERTIFIED_PR" || task?.workflow_state === "PR_OPENED");
               const isAwaitingReview =
-                (task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
-                task?.workflow_state !== "CODING";
+                !isPRReady &&
+                Boolean(task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT");
               const isPreviewReady = lease.status === "ready" && !!lease.preview_url;
 
               return (
@@ -276,16 +280,16 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
                     {/* GitHub PR Link */}
                     <td className="py-4 px-4">
-                      {lease.pr_url || task?.evidence?.pr_url ? (
+                      {prUrl ? (
                         <a
-                          href={lease.pr_url || task?.evidence?.pr_url}
+                          href={prUrl}
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center space-x-1.5 text-emerald-400 hover:text-emerald-300 hover:underline font-medium text-xs"
                         >
                           <GitPullRequest className="w-3.5 h-3.5" />
-                          <span>PR #1</span>
+                          <span>PR Link</span>
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       ) : (

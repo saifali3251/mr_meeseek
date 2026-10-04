@@ -69,6 +69,7 @@ export interface TaskRecord {
   preview_url?: string;
   preview_port?: number;
   evidence?: Evidence;
+  pr_url?: string;
   plan_only?: boolean;
   halted?: boolean;
 }
@@ -78,6 +79,8 @@ export interface Environment {
   ready: boolean;
   problems: string[];
   active_leases: number;
+  golden_updated_at?: number | null;
+  golden_path?: string | null;
 }
 
 export interface Team {
@@ -112,6 +115,18 @@ export interface OpsState {
     warm_count?: number;
   };
   golden_sync?: Record<string, any>;
+  golden?: {
+    app: string | null;
+    ready: boolean;
+    updated_at?: number | null;
+    path?: string | null;
+  };
+  jira?: {
+    connected: boolean;
+    base_url: string;
+    project: string;
+    webhook_mode?: boolean;
+  };
 }
 
 export interface OnboardingRepoSpec {

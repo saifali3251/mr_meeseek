@@ -932,6 +932,25 @@ class ComposeProvider:
                 problems.append(f"golden image for '{a}' not found at {golden}")
         return problems
 
+    def golden_info(self, app: str) -> dict:
+        """Return metadata about the golden image for `app`."""
+        try:
+            m = self._manifest(app)
+        except Exception:
+            return {"exists": False, "updated_at": None, "path": None}
+        golden = m.get("HOLO_GOLDEN")
+        if not golden:
+            return {"exists": False, "updated_at": None, "path": None}
+        p = Path(golden)
+        if not p.exists():
+            return {"exists": False, "updated_at": None, "path": str(p)}
+        stamp_file = p / ".holodeck-golden"
+        try:
+            mtime = stamp_file.stat().st_mtime if stamp_file.exists() else p.stat().st_mtime
+        except Exception:
+            mtime = None
+        return {"exists": True, "updated_at": mtime, "path": str(p)}
+
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             file_copy=True, one_shot_exec=True, streaming_exec=True,

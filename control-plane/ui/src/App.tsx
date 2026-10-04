@@ -22,6 +22,15 @@ import { LoginPage } from "./components/LoginPage";
 
 type ActiveTab = "workspaces" | "onboarding" | "judge";
 
+function formatGoldenAge(ts?: number | null): string {
+  if (!ts) return "Active snapshot";
+  const diffSec = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (diffSec < 60) return "Just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
+}
+
 export const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     try {
@@ -68,7 +77,9 @@ export const App: React.FC = () => {
     try { localStorage.setItem("meeseek-console-theme", isDark ? "dark" : "light"); } catch (e) {}
   }, [isDark]);
 
-  // Load ops state & onboarding requests
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
+
+  // Load ops state via one-shot fetch (used as immediate fetch or on explicit actions)
   const loadState = useCallback(async () => {
     try {
       const data = await fetchOpsState(
@@ -77,27 +88,85 @@ export const App: React.FC = () => {
       setState(data);
       setLastUpdated(new Date().toLocaleTimeString());
 
-      if (!selectedLeaseId && data.leases.length > 0) {
+      if (!selectedLeaseId && data.leases && data.leases.length > 0) {
         setSelectedLeaseId(data.leases[0].lease_id);
       }
-
-      if (selectedRole === "admin" || activeTab === "onboarding") {
-        const onb = await fetchOnboardingRequests();
-        setOnboardingRequests(onb);
-      }
     } catch (err) {
-      console.error("Error polling ops state:", err);
+      console.error("Error fetching ops state:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [selectedRole, selectedLeaseId, activeTab, state?.team]);
+  }, [selectedRole, selectedLeaseId, state?.team]);
 
-  // Initial load and continuous quiet live polling
+  // Load onboarding requests when in onboarding tab or admin role
   useEffect(() => {
-    loadState();
-    const interval = setInterval(loadState, 2000);
-    return () => clearInterval(interval);
-  }, [loadState]);
+    if (selectedRole === "admin" || activeTab === "onboarding") {
+      fetchOnboardingRequests()
+        .then(setOnboardingRequests)
+        .catch((err) => console.error("Error fetching onboarding requests:", err));
+    }
+  }, [selectedRole, activeTab]);
+
+  // Real-Time Server-Sent Events (SSE) Stream
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    const connectSSE = () => {
+      const teamSlug = selectedRole === "team" && state?.team ? state.team.slug : undefined;
+      const sseUrl = teamSlug ? `/ops/events?team=${encodeURIComponent(teamSlug)}` : `/ops/events`;
+
+      try {
+        eventSource = new EventSource(sseUrl);
+
+        eventSource.onopen = () => {
+          setIsLiveConnected(true);
+          setIsLoading(false);
+        };
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data: OpsState = JSON.parse(event.data);
+            setState(data);
+            setLastUpdated(new Date().toLocaleTimeString());
+            setIsLoading(false);
+            setIsLiveConnected(true);
+
+            if (!selectedLeaseId && data.leases && data.leases.length > 0) {
+              setSelectedLeaseId(data.leases[0].lease_id);
+            }
+          } catch (err) {
+            console.error("Error parsing SSE event data:", err);
+          }
+        };
+
+        eventSource.onerror = (err) => {
+          console.warn("SSE connection error or interrupted, reconnecting...", err);
+          setIsLiveConnected(false);
+        };
+      } catch (e) {
+        console.error("Failed to initialize EventSource, using fallback polling:", e);
+        loadState();
+        fallbackInterval = setInterval(loadState, 10000);
+      }
+    };
+
+    if (typeof EventSource !== "undefined") {
+      connectSSE();
+    } else {
+      loadState();
+      fallbackInterval = setInterval(loadState, 10000);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+      }
+    };
+  }, [selectedRole, state?.team?.slug]);
 
   // Handle Destroy Lease
   const handleDestroyLease = async (leaseId: string, ticket?: string) => {
@@ -150,6 +219,7 @@ export const App: React.FC = () => {
         }}
         authUser={authUser}
         onSignOut={handleSignOut}
+        isLiveConnected={isLiveConnected}
       />
 
       {/* Fluid Subheader Navigation & Action Bar */}
@@ -278,16 +348,67 @@ export const App: React.FC = () => {
                 </p>
               </div>
               <div className="flex items-stretch gap-3">
-                {[
-                  { label: "Live workspaces", value: state?.kpis?.live ?? 0, tone: "text-cyan-400" },
-                  { label: "Golden images ready", value: `${state?.kpis?.environments_ready ?? 0}/${state?.kpis?.environments_total ?? 0}`, tone: "text-emerald-400" },
-                  { label: "Capacity", value: state?.kpis?.max_leases ?? 0, tone: "text-purple-400" },
-                ].map((k) => (
-                  <div key={k.label} className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[118px]">
-                    <div className="mee-stat">{k.value}</div>
-                    <div className={`text-[11px] font-mono uppercase tracking-wider mt-1.5 ${k.tone}`}>{k.label}</div>
+                {/* CARD 1: LIVE WORKSPACES */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[130px] flex flex-col justify-between">
+                  <div className="flex items-baseline justify-between">
+                    <div className="mee-stat">{state?.kpis?.live ?? 0}</div>
+                    {!!state?.kpis?.queued && state.kpis.queued > 0 && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        +{state.kpis.queued} queued
+                      </span>
+                    )}
                   </div>
-                ))}
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-cyan-400 mt-2">
+                    Live Workspaces
+                  </div>
+                </div>
+
+                {/* CARD 2: ACTIVE GOLDEN BUILD & FRESHNESS */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[160px] flex flex-col justify-between">
+                  <div className="flex items-center justify-between space-x-2">
+                    <span 
+                      className="text-sm font-bold text-white tracking-tight truncate max-w-[130px]" 
+                      title={state?.golden?.app || state?.default_app || "full-stack-application"}
+                    >
+                      {(state?.golden?.app || state?.default_app || "Full-Stack App")
+                        .replace("full-stack-application", "Full-Stack App")}
+                    </span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                      Ready (CoW)
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono text-emerald-400/90 mt-2 flex items-center justify-between">
+                    <span className="uppercase tracking-wider">Golden Build</span>
+                    <span 
+                      className="text-slate-400 font-mono text-[10px] ml-2" 
+                      title={state?.golden?.updated_at ? new Date(state.golden.updated_at * 1000).toLocaleString() : undefined}
+                    >
+                      {formatGoldenAge(state?.golden?.updated_at)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* CARD 3: JIRA INTEGRATION STATUS */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[160px] flex flex-col justify-between">
+                  <div className="flex items-center justify-between space-x-2">
+                    <span className="text-sm font-bold text-white tracking-tight">
+                      {state?.jira?.connected ? "Jira Cloud" : "Standalone"}
+                    </span>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium whitespace-nowrap ${
+                      state?.jira?.connected
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        : "bg-slate-700/30 text-slate-400 border border-slate-700/50"
+                    }`}>
+                      {state?.jira?.connected ? `● ${state?.jira?.project || "FSA"}` : "○ Offline"}
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono text-purple-400 mt-2 flex items-center justify-between">
+                    <span className="uppercase tracking-wider">Integration</span>
+                    <span className="text-slate-400 font-mono text-[10px] ml-2">
+                      {state?.jira?.connected ? "Real-time Sync" : "Local Sandbox"}
+                    </span>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -341,6 +462,7 @@ export const App: React.FC = () => {
         onClose={() => setIsStrikeModalOpen(false)}
         apps={state?.apps || ["full-stack-application"]}
         defaultApp={state?.default_app || "full-stack-application"}
+        jira={state?.jira}
         onSuccess={loadState}
       />
     </div>
