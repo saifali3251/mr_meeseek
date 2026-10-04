@@ -104,13 +104,19 @@ class Config:
     # (tests / first local bring-up); set HOLODECK_TOKEN on any shared box.
     token: str = field(default_factory=lambda: os.environ.get("HOLODECK_TOKEN", ""))
 
-    # Console UI Authentication & RBAC credentials
+    # Console UI Authentication & RBAC credentials (must be provided via env)
     admin_password: str = field(
-        default_factory=lambda: os.environ.get("MEESEEK_ADMIN_PASSWORD")
-        or os.environ.get("HOLODECK_ADMIN_PASSWORD", "meeseek2026"))
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_ADMIN_PASSWORD")
+            or os.environ.get("HOLODECK_ADMIN_PASSWORD")
+            or ""
+        ))
     superadmin_password: str = field(
-        default_factory=lambda: os.environ.get("MEESEEK_SUPERADMIN_PASSWORD")
-        or os.environ.get("HOLODECK_SUPERADMIN_PASSWORD", "meeseek-root-2026"))
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_SUPERADMIN_PASSWORD")
+            or os.environ.get("HOLODECK_SUPERADMIN_PASSWORD")
+            or ""
+        ))
 
     # capacity guard (issue #8): ~890 MB/ws, ~60 per 64 GB host. A new lease past
     # this QUEUES (status=queued) rather than hard-rejecting with a 503 — it

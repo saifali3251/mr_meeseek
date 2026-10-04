@@ -19,6 +19,7 @@ on the lease API itself (`GET /leases`, `/environments`, `POST /leases`, …).
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import asdict
 from typing import Optional
 
@@ -299,15 +300,21 @@ def build_ops_router(service: LeaseService, cfg: Config,
         u = body.username.strip().lower()
         p = body.password.strip()
 
+        # Ensure passwords are configured in environment
+        if not cfg.admin_password and not cfg.superadmin_password:
+            raise HTTPException(503, "Authentication passwords are not configured on the server. Please set MEESEEK_ADMIN_PASSWORD in your environment / holodeck.env.")
+
         # Superadmin check
-        if u in ("superadmin", "root", "devops") and p == cfg.superadmin_password:
-            return {"authenticated": True, "username": u, "role": "superadmin"}
+        if u in ("superadmin", "root", "devops"):
+            if cfg.superadmin_password and secrets.compare_digest(p, cfg.superadmin_password):
+                return {"authenticated": True, "username": u, "role": "superadmin"}
 
         # Admin / Judge check
-        if u in ("admin", "judge", "evaluator") and p == cfg.admin_password:
-            return {"authenticated": True, "username": u, "role": "admin"}
+        if u in ("admin", "judge", "evaluator"):
+            if cfg.admin_password and secrets.compare_digest(p, cfg.admin_password):
+                return {"authenticated": True, "username": u, "role": "admin"}
 
-        raise HTTPException(401, "Invalid username or password. Check demo credentials or use 1-click login.")
+        raise HTTPException(401, "Invalid username or password.")
 
     return r
 

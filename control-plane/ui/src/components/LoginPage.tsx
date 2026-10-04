@@ -37,25 +37,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       const user = await login(username.trim(), password.trim());
       onLogin(user);
     } catch (err: any) {
-      setError(err.message || "Invalid credentials. Use the quick demo buttons below.");
+      setError(err.message || "Invalid credentials. Please verify your password.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleQuickLogin = async (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setError(null);
-    setIsLoading(true);
-    try {
-      const user = await login(u, p);
-      onLogin(user);
-    } catch (err: any) {
-      setError(err.message || "Quick demo authentication failed.");
-    } finally {
-      setIsLoading(false);
-    }
+  const handleSelectRole = (role: string) => {
+    setUsername(role);
   };
 
   return (
@@ -93,9 +82,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         {/* Credentials Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5 font-mono">
-              Username
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-medium text-slate-300 font-mono">
+                Username
+              </label>
+              <div className="flex items-center space-x-1.5 text-[11px] font-mono">
+                <span className="text-slate-500">Quick fill:</span>
+                <button
+                  type="button"
+                  onClick={() => handleSelectRole("admin")}
+                  className="text-cyan-400 hover:text-cyan-300 underline"
+                >
+                  admin
+                </button>
+                <span className="text-slate-600">&bull;</span>
+                <button
+                  type="button"
+                  onClick={() => handleSelectRole("superadmin")}
+                  className="text-purple-400 hover:text-purple-300 underline"
+                >
+                  superadmin
+                </button>
+              </div>
+            </div>
             <div className="relative">
               <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -152,60 +161,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="relative my-7">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-800" />
-          </div>
-          <div className="relative flex justify-center text-[10px] uppercase font-mono tracking-wider">
-            <span className="bg-meeseek-900 px-3 text-slate-500">
-              1-Click Evaluator Quick Access
-            </span>
-          </div>
-        </div>
-
-        {/* 1-Click Quick Access Chips for Hackathon Judges */}
-        <div className="space-y-2.5">
-          <button
-            type="button"
-            onClick={() => handleQuickLogin("admin", "meeseek2026")}
-            disabled={isLoading}
-            className="w-full py-2.5 px-4 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/30 hover:border-cyan-500/60 text-xs font-semibold flex items-center justify-between transition-all group active:scale-98"
-          >
-            <div className="flex items-center space-x-2">
-              <Sparkles className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
-              <span>Quick Judge / Admin Login</span>
-            </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-              ⚡ 1-Click
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleQuickLogin("superadmin", "meeseek-root-2026")}
-            disabled={isLoading}
-            className="w-full py-2.5 px-4 rounded-xl bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/30 hover:border-purple-500/60 text-xs font-semibold flex items-center justify-between transition-all group active:scale-98"
-          >
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
-              <span>Quick Superadmin Login</span>
-            </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400">
-              👑 Full Root
-            </span>
-          </button>
-        </div>
-
         {/* Bottom Helper Info */}
-        <div className="mt-7 pt-4 border-t border-slate-800/80 text-center text-[10px] font-mono text-slate-500 leading-relaxed">
-          <span>AI Builder Cup 2026 Evaluation</span>
-          <div className="text-slate-600 mt-1">
-            <code>admin : meeseek2026</code> &bull; <code>superadmin : meeseek-root-2026</code>
+        <div className="mt-8 pt-4 border-t border-slate-800/80 text-center text-[10px] font-mono text-slate-500 leading-relaxed">
+          <span>Meeseek Agentic Sandbox &bull; AI Builder Cup 2026</span>
+          <div className="text-slate-400 mt-1">
+            Please enter your evaluator access credentials
           </div>
         </div>
       </div>
     </div>
   );
 };
-
