@@ -58,6 +58,11 @@ interface MeeseekChatbotProps {
 
 export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [isClosing, setIsClosing] = useState<boolean>(false);
+  const closePanel = () => {
+    setIsClosing(true);
+    setTimeout(() => { setIsOpen(false); setIsClosing(false); }, 220);
+  };
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -88,6 +93,14 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
       setTimeout(() => inputRef.current?.focus(), 150);
     }
   }, [isOpen, messages, isLoading]);
+
+  // Auto-grow the input as the user types
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, [input, isOpen]);
 
   // Persist messages
   useEffect(() => {
@@ -178,12 +191,12 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
         const codeId = `${msgId}-code-${index}`;
 
         return (
-          <div key={index} className="my-2.5 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 text-xs font-mono">
-            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/80 border-b border-slate-800 text-[11px] text-slate-400">
+          <div key={index} className="mc-code my-2.5 text-xs font-mono">
+            <div className="mc-code-head flex items-center justify-between px-3 py-1.5 text-[11px]">
               <span>{lang || "code"}</span>
               <button
                 onClick={() => copyToClipboard(code, codeId)}
-                className="flex items-center space-x-1 hover:text-cyan-400 transition-colors"
+                className="mc-code-copy flex items-center space-x-1"
                 title="Copy code"
               >
                 {copiedId === codeId ? (
@@ -199,7 +212,7 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
                 )}
               </button>
             </div>
-            <pre className="p-3 overflow-x-auto text-cyan-300 leading-relaxed whitespace-pre-wrap">{code}</pre>
+            <pre className="p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap">{code}</pre>
           </div>
         );
       }
@@ -210,13 +223,13 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
         return tokens.map((token, tIdx) => {
           if (token.startsWith("`") && token.endsWith("`")) {
             return (
-              <code key={tIdx} className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-xs border border-slate-700/60">
+              <code key={tIdx} className="mc-inline-code">
                 {token.slice(1, -1)}
               </code>
             );
           }
           if (token.startsWith("**") && token.endsWith("**")) {
-            return <strong key={tIdx} className="font-bold text-white">{token.slice(2, -2)}</strong>;
+            return <strong key={tIdx} className="mc-strong">{token.slice(2, -2)}</strong>;
           }
           const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
           if (linkMatch) {
@@ -226,7 +239,7 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
                 href={linkMatch[2]} 
                 target="_blank" 
                 rel="noreferrer" 
-                className="text-cyan-400 hover:text-cyan-300 underline font-medium"
+                className="mc-link"
               >
                 {linkMatch[1]}
               </a>
@@ -248,10 +261,10 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
               const level = headerMatch[1].length;
               const text = headerMatch[2];
               const sizeClass = 
-                level === 1 ? "text-lg font-bold text-white mt-3 mb-1.5" :
-                level === 2 ? "text-base font-bold text-white mt-2.5 mb-1" :
-                level === 3 ? "text-sm font-bold text-cyan-300 mt-2 mb-1" :
-                "text-xs font-bold text-slate-200 uppercase tracking-wider mt-2 mb-0.5";
+                level === 1 ? "mc-h text-lg mt-3 mb-1.5" :
+                level === 2 ? "mc-h text-base mt-2.5 mb-1" :
+                level === 3 ? "mc-h mc-h3 text-sm mt-2 mb-1" :
+                "mc-h text-xs uppercase tracking-wider mt-2 mb-0.5";
               return (
                 <div key={lIdx} className={sizeClass}>
                   {renderInlineTokens(text)}
@@ -266,7 +279,7 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
               const text = numberedMatch[2];
               return (
                 <div key={lIdx} className="flex items-start space-x-2 my-1">
-                  <span className="text-cyan-400 font-mono text-xs mt-0.5 font-bold select-none">{num}.</span>
+                  <span className="mc-num font-mono text-xs mt-0.5 font-bold select-none">{num}.</span>
                   <div className="flex-1">{renderInlineTokens(text)}</div>
                 </div>
               );
@@ -278,7 +291,7 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
               const text = trimmed.replace(/^[-*•]\s*/, "");
               return (
                 <div key={lIdx} className="flex items-start space-x-2 my-0.5">
-                  <span className="text-cyan-400 select-none mt-1">&bull;</span>
+                  <span className="mc-bullet select-none" aria-hidden="true" />
                   <div className="flex-1">{renderInlineTokens(text)}</div>
                 </div>
               );
@@ -300,136 +313,86 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
     });
   };
 
+  const isWelcome = messages.length <= 1;
+  const ACCENTS = ["mc-acc-orange", "mc-acc-blue", "mc-acc-green", "mc-acc-violet"];
+
   return (
-    <aside aria-label="Meeseek Copilot" className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-      {/* Floating Toggle Button (When Closed) */}
+    <aside aria-label="Meeseek Copilot" className="mc-root fixed bottom-6 right-6 z-50 flex flex-col items-end">
+      {/* Launcher (closed) */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="group relative flex items-center space-x-2.5 px-4 py-3 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-sm shadow-xl shadow-cyan-500/30 transition-all duration-300 hover:scale-105 active:scale-95 border-2 border-cyan-400/40"
+          className="mc-launcher group"
           title="Open Mr. Meeseeks Live Copilot"
         >
-          {/* Pulsing ring */}
-          <span className="absolute -inset-1 rounded-full bg-cyan-400/20 animate-pulse pointer-events-none" />
-          
-          <img 
-            src={meeseekIcon} 
-            alt="Meeseek" 
-            className="w-7 h-7 rounded-full object-contain filter drop-shadow group-hover:rotate-12 transition-transform duration-300" 
-          />
-          <span className="tracking-wide">Ask Meeseek</span>
-          
-          {/* Active AI indicator badge */}
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+          <span className="mc-launcher-ring" aria-hidden="true" />
+          <span className="mc-launcher-avatar">
+            <img src={meeseekIcon} alt="" />
           </span>
+          <span className="mc-launcher-text">
+            <span className="mc-launcher-title">Ask Meeseek</span>
+            <span className="mc-launcher-sub">I'm here to help!</span>
+          </span>
+          <span className="mc-live-dot" aria-hidden="true" />
         </button>
       )}
 
-      {/* Expanded Chat Drawer / Widget */}
+      {/* Panel (open) */}
       {isOpen && (
-        <div className="w-[430px] sm:w-[480px] h-[640px] max-h-[85vh] flex flex-col rounded-2xl bg-meeseek-950/95 backdrop-blur-2xl border border-cyan-500/30 shadow-2xl shadow-cyan-950/50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-          {/* Widget Header */}
-          <div className="px-5 py-4 bg-gradient-to-r from-meeseek-900/90 to-meeseek-950/90 border-b border-meeseek-border flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <img 
-                  src={meeseekIcon} 
-                  alt="Mr. Meeseeks" 
-                  className="w-9 h-9 rounded-full object-contain filter drop-shadow-md border border-cyan-500/40 bg-cyan-950/40 p-0.5" 
-                />
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-slate-950" />
+        <div className={`mc-panel ${isClosing ? "mc-panel--closing" : ""}`} role="dialog" aria-label="Mr. Meeseeks Copilot">
+          {/* Header */}
+          <div className="mc-header">
+            <span className="mc-header-sheen" aria-hidden="true" />
+            <span className="mc-header-stars" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+            <div className="relative flex items-center gap-3 min-w-0">
+              <div className="mc-avatar">
+                <img src={meeseekIcon} alt="Mr. Meeseeks" />
+                <span className="mc-avatar-status" />
               </div>
-              <div>
-                <div className="flex items-center space-x-1.5">
-                  <h3 className="font-bold text-white text-sm">Mr. Meeseeks Copilot</h3>
-                  <span className="px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono text-[10px] uppercase font-semibold">
-                    Gemini Flash
-                  </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="mc-title">Mr. Meeseeks Copilot</h3>
+                  <span className="mc-model-chip">Gemini Flash</span>
                 </div>
-                <p className="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                  <span>Live System Grounding Active</span>
+                <p className="mc-status">
+                  <span className="mc-status-dot" />
+                  Live system grounding active
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center space-x-1">
-              <button
-                onClick={handleClearHistory}
-                className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800/60 transition-colors"
-                title="Clear Chat History"
-              >
+            <div className="relative flex items-center gap-1">
+              <button onClick={handleClearHistory} className="mc-icon-btn mc-icon-btn--danger" title="Clear chat history">
                 <Trash2 className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
-                title="Minimize Copilot"
-              >
+              <button onClick={closePanel} className="mc-icon-btn" title="Minimize Copilot">
                 <ChevronDown className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* Quick Suggestion Pills */}
-          <div className="px-4 py-2 bg-meeseek-900/40 border-b border-meeseek-border/60 overflow-x-auto flex items-center space-x-2 scrollbar-none text-xs">
-            {SUGGESTED_PROMPTS.map((item, idx) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={idx}
-                  onClick={() => handleSend(item.prompt)}
-                  disabled={isLoading}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-slate-900/90 hover:bg-cyan-950/80 border border-slate-700/60 hover:border-cyan-500/40 text-slate-300 hover:text-cyan-300 transition-all whitespace-nowrap text-xs active:scale-95 disabled:opacity-50"
-                >
-                  <Icon className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Messages Stream */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-slate-200">
-            {messages.map((msg) => {
+          {/* Messages */}
+          <div className="mc-stream">
+            {messages.map((msg, mIdx) => {
               const isUser = msg.role === "user";
               return (
                 <div
                   key={msg.id}
-                  className={`flex items-start space-x-2.5 ${isUser ? "flex-row-reverse space-x-reverse" : "flex-row"}`}
+                  className={`mc-row ${isUser ? "mc-row--user" : "mc-row--bot"}`}
+                  style={{ animationDelay: `${Math.min(mIdx, 3) * 40}ms` }}
                 >
-                  {/* Avatar */}
-                  <div className="flex-shrink-0 mt-0.5">
-                    {isUser ? (
-                      <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
-                        <User className="w-4 h-4" />
-                      </div>
-                    ) : (
-                      <img 
-                        src={meeseekIcon} 
-                        alt="Bot" 
-                        className="w-7 h-7 rounded-full object-contain filter drop-shadow p-0.5 bg-cyan-950 border border-cyan-500/30" 
-                      />
-                    )}
-                  </div>
-
-                  {/* Message Bubble */}
-                  <div
-                    className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm shadow-md ${
-                      isUser
-                        ? "bg-cyan-600 text-white rounded-tr-none font-medium"
-                        : "bg-meeseek-900/90 border border-slate-800/80 text-slate-200 rounded-tl-none"
-                    }`}
-                  >
+                  {isUser ? (
+                    <div className="mc-user-avatar"><User className="w-4 h-4" /></div>
+                  ) : (
+                    <img src={meeseekIcon} alt="" className="mc-bot-avatar" />
+                  )}
+                  <div className={`mc-bubble ${isUser ? "mc-bubble--user" : "mc-bubble--bot"}`}>
+                    {!isUser && <div className="mc-bubble-name">Mr. Meeseeks</div>}
                     {isUser ? (
                       <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                     ) : (
                       <div>{renderFormattedContent(msg.content, msg.id)}</div>
                     )}
-                    
-                    <div className={`text-[10px] mt-1 font-mono ${isUser ? "text-cyan-200 text-right" : "text-slate-500"}`}>
+                    <div className="mc-time">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </div>
                   </div>
@@ -437,17 +400,38 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
               );
             })}
 
-            {/* Loading Indicator */}
+            {/* Welcome quick topics */}
+            {isWelcome && !isLoading && (
+              <div className="mc-topics">
+                <div className="mc-topics-label">Quick topics</div>
+                <div className="mc-topics-grid">
+                  {SUGGESTED_PROMPTS.map((item, idx) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => handleSend(item.prompt)}
+                        disabled={isLoading}
+                        className={`mc-topic ${ACCENTS[idx % ACCENTS.length]}`}
+                        style={{ animationDelay: `${180 + idx * 70}ms` }}
+                      >
+                        <span className="mc-topic-icon"><Icon className="w-4 h-4" /></span>
+                        <span className="mc-topic-label">{item.label}</span>
+                        <span className="mc-topic-go" aria-hidden="true">&rarr;</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Typing indicator */}
             {isLoading && (
-              <div className="flex items-start space-x-2.5 animate-pulse">
-                <img 
-                  src={meeseekIcon} 
-                  alt="Loading" 
-                  className="w-7 h-7 rounded-full object-contain filter drop-shadow p-0.5 bg-cyan-950 border border-cyan-500/30" 
-                />
-                <div className="rounded-2xl rounded-tl-none px-4 py-3 bg-meeseek-900/90 border border-slate-800 text-xs text-cyan-300 font-mono flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                  <span>Mr. Meeseeks is inspecting the live cluster state...</span>
+              <div className="mc-row mc-row--bot">
+                <img src={meeseekIcon} alt="" className="mc-bot-avatar mc-bot-avatar--thinking" />
+                <div className="mc-bubble mc-bubble--bot mc-typing">
+                  <span className="mc-typing-dots"><i /><i /><i /></span>
+                  <span>Inspecting the live cluster state&hellip;</span>
                 </div>
               </div>
             )}
@@ -455,33 +439,44 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat Input Bar */}
-          <div className="p-3 bg-meeseek-900/90 border-t border-meeseek-border">
-            <div className="flex items-end space-x-2 bg-slate-950/80 rounded-xl border border-slate-800 p-2 focus-within:border-cyan-500/60 transition-colors">
+          {/* Compact topic chips once the conversation has started */}
+          {!isWelcome && (
+            <div className="mc-chips">
+              {SUGGESTED_PROMPTS.map((item, idx) => {
+                const Icon = item.icon;
+                return (
+                  <button key={idx} onClick={() => handleSend(item.prompt)} disabled={isLoading} className={`mc-chip ${ACCENTS[idx % ACCENTS.length]}`}>
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Composer */}
+          <div className="mc-composer">
+            <div className="mc-input">
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask Mr. Meeseeks about workspaces, failures, commands..."
+                placeholder="Ask about workspaces, failures, commands…"
                 rows={1}
-                className="flex-1 bg-transparent text-sm text-slate-100 placeholder-slate-500 resize-none focus:outline-none max-h-24 px-1 py-0.5"
               />
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
-                className="p-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-40 disabled:hover:bg-cyan-600 transition-colors flex-shrink-0"
+                className="mc-send"
                 title="Send message (Enter)"
               >
                 <Send className="w-4 h-4" />
               </button>
             </div>
-            <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-slate-500 font-mono">
-              <span>Press <strong className="text-slate-400">Enter</strong> to send</span>
-              <span className="flex items-center space-x-1 text-cyan-400/80">
-                <Sparkles className="w-3 h-3" />
-                <span>Grounded in live state</span>
-              </span>
+            <div className="mc-foot">
+              <span><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
+              <span className="mc-grounded"><Sparkles className="w-3 h-3" />Grounded in live state</span>
             </div>
           </div>
         </div>
@@ -489,4 +484,3 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
     </aside>
   );
 };
-
