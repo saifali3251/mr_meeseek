@@ -23,7 +23,7 @@ def _manager():
 
 def test_trigger_creates_task_and_correlates():
     mgr, _ = _manager()
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     assert rec.lease_id == "cpl-1"          # lease id derived from ticket
     assert rec.status == "ready"
     assert rec.preview_url and rec.preview_url.startswith("http://127.0.0.1:")
@@ -33,14 +33,14 @@ def test_trigger_creates_task_and_correlates():
 
 def test_duplicate_trigger_conflicts():
     mgr, _ = _manager()
-    mgr.trigger("CPL-1", "compliance")
+    mgr.trigger("CPL-1", "full-stack-application")
     with pytest.raises(ConsoleConflict):
-        mgr.trigger("CPL-1", "compliance")
+        mgr.trigger("CPL-1", "full-stack-application")
 
 
 def test_refresh_reflects_release():
     mgr, _ = _manager()
-    mgr.trigger("CPL-1", "compliance")
+    mgr.trigger("CPL-1", "full-stack-application")
     mgr.release("CPL-1")
     mgr.refresh()
     assert mgr.board()[0]["status"] == "released"
@@ -48,16 +48,16 @@ def test_refresh_reflects_release():
 
 def test_released_ticket_is_retriggerable():
     mgr, _ = _manager()
-    mgr.trigger("CPL-1", "compliance")
+    mgr.trigger("CPL-1", "full-stack-application")
     mgr.release("CPL-1")
     # terminal -> can trigger the same ticket again
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     assert rec.status == "ready"
 
 
 def test_finalize_calls_lease_client_and_stores_verified_pr():
     mgr, client = _manager()
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     rec.pr_url = "https://github.com/org/repo/pull/1"  # a stale, self-reported one
     mgr.store.put(rec)
     client.force_evidence[rec.lease_id] = {
@@ -85,7 +85,7 @@ def test_finalize_route():
     client = FakeLeaseClient()
     app = FastAPI()
     mgr = mount_console(app, cfg, lease_client=client, start_poller=False)
-    mgr.trigger("CPL-1", "compliance")
+    mgr.trigger("CPL-1", "full-stack-application")
     c = TestClient(app)
     r = c.post("/console/tasks/CPL-1/finalize")
     assert r.status_code == 200, r.text
@@ -99,7 +99,7 @@ def test_routes_via_app():
     mount_console(app, cfg, lease_client=client, start_poller=False)
     c = TestClient(app)
 
-    r = c.post("/console/trigger", json={"ticket": "CPL-9", "app": "compliance"})
+    r = c.post("/console/trigger", json={"ticket": "CPL-9", "app": "full-stack-application"})
     assert r.status_code == 200, r.text
     assert r.json()["lease_id"] == "cpl-9"
 
@@ -113,16 +113,16 @@ def test_routes_via_app():
 
 def test_trigger_resolves_app_alias_to_real_manifest_key():
     # regression: the Jira/console-trigger path must reverse-map a display alias
-    # ("compliance") to the real manifest key ("compliance-ui") before the lease
+    # ("demo-alias") to the real manifest key ("demo-service") before the lease
     # API's allowlist sees it — otherwise the alias is rejected 422.
     cfg = Config(provider="fake", console_driver="direct")
-    cfg.apps_allow = {"compliance-ui"}
-    cfg.app_aliases = {"compliance-ui": "compliance"}
-    cfg.default_app = "compliance"                  # operator sets the alias, naturally
+    cfg.apps_allow = {"demo-service"}
+    cfg.app_aliases = {"demo-service": "demo-alias"}
+    cfg.default_app = "demo-alias"                  # operator sets the alias, naturally
     client = FakeLeaseClient()
     mgr = ConsoleManager(cfg, ConsoleStore(), client, DirectDriver(client))
     rec = mgr.trigger("CPL-1")                       # no app -> falls back to default_app
-    assert rec.app == "compliance-ui"               # resolved to the real key, not the alias
+    assert rec.app == "demo-service"               # resolved to the real key, not the alias
 
 
 def test_trigger_missing_lease_conflict_maps_to_http():
@@ -131,6 +131,6 @@ def test_trigger_missing_lease_conflict_maps_to_http():
     app = FastAPI()
     mount_console(app, cfg, lease_client=client, start_poller=False)
     c = TestClient(app)
-    c.post("/console/trigger", json={"ticket": "CPL-1", "app": "compliance"})
-    r = c.post("/console/trigger", json={"ticket": "CPL-1", "app": "compliance"})
+    c.post("/console/trigger", json={"ticket": "CPL-1", "app": "full-stack-application"})
+    r = c.post("/console/trigger", json={"ticket": "CPL-1", "app": "full-stack-application"})
     assert r.status_code == 409

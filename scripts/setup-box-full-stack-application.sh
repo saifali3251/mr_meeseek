@@ -25,7 +25,7 @@
 # App source is git-cloned now, NOT copied onto the box — as of the
 # 2026-09-22 repo split, full-stack-application is two repos (test_backend,
 # test_frontend) and golden-build.full-stack-application.sh clones both
-# itself (same pattern as control-tower's composite). This script only
+# itself. This script only
 # creates the empty composite-root directory; nothing to rsync here anymore.
 #
 # If those repos are private, HOLO_GIT_BASE (set in

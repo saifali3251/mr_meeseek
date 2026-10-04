@@ -17,15 +17,13 @@ from holodeck.store import LeaseStore, PortPool
 
 @pytest.fixture
 def manifests_dir(tmp_path: Path) -> Path:
-    """A fake HOLO_DIR with manifests/{compliance,compliance-ui,main}.sh so the
-    on-disk allowlist (issue #1) resolves to {'compliance','compliance-ui','main'}.
-    compliance-ui is included to prove the composite manifest is auto-discovered
-    with no API config change."""
+    """A fake HOLO_DIR with manifests/{full-stack-application,demo-service,sample-app}.sh so the
+    on-disk allowlist resolves to {'full-stack-application','demo-service','sample-app'}."""
     m = tmp_path / "manifests"
     m.mkdir()
-    (m / "compliance.sh").write_text("HOLO_APP=compliance\n")
-    (m / "compliance-ui.sh").write_text("HOLO_APP=compliance-ui\n")
-    (m / "main.sh").write_text("HOLO_APP=main\n")
+    (m / "full-stack-application.sh").write_text("HOLO_APP=full-stack-application\n")
+    (m / "demo-service.sh").write_text("HOLO_APP=demo-service\n")
+    (m / "sample-app.sh").write_text("HOLO_APP=sample-app\n")
     (m / "README.md").write_text("# manifests\n")
     (tmp_path / "scripts").mkdir()
     return tmp_path

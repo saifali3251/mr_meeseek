@@ -194,8 +194,8 @@ def draft_manifest(repo_root: Path, primary: RepoSpec) -> dict[str, ManifestFiel
     else:
         for name in ("HOLO_PG_SERVICE", "HOLO_PG_USER", "HOLO_PG_DB", "HOLO_PGDATA_MODE"):
             fields[name] = needs_review()
-    # relocating pgdata into the checkout (compliance.pgdata.yaml's job) is too
-    # bespoke to auto-generate — always left for a human, per manifests/README.md.
+    # relocating pgdata into the checkout (pgdata override) is too
+    # bespoke to auto-generate — always left for a human.
     fields["HOLO_PGDATA_OVERRIDE"] = needs_review()
 
     # minimal boot set: app + db (+ anything the app declares depends_on).

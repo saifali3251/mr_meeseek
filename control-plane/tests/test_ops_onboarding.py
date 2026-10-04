@@ -71,7 +71,7 @@ def _new_team(client) -> dict:
 def test_unscoped_ops_state_sees_everything(full_client):
     s = full_client.get("/ops/state").json()
     assert s["team"] is None
-    assert {"compliance", "compliance-ui", "main"} <= set(s["apps"])
+    assert {"full-stack-application", "demo-service", "sample-app"} <= set(s["apps"])
 
 
 def test_teams_endpoint_501_when_onboarding_disabled(cfg, service):
@@ -96,7 +96,7 @@ def test_bad_token_falls_back_to_unscoped(full_client):
     team = _new_team(full_client)
     s = full_client.get("/ops/state", params={"team": team["slug"], "token": "wrong"}).json()
     assert s["team"] is None
-    assert {"compliance", "main"} <= set(s["apps"])   # full admin view, not an error
+    assert {"full-stack-application", "sample-app"} <= set(s["apps"])   # full admin view, not an error
 
 
 def test_cookie_persists_scope_after_query_param_drops(full_client):
@@ -108,15 +108,15 @@ def test_cookie_persists_scope_after_query_param_drops(full_client):
 
 def test_scoped_strike_rejects_unowned_app(full_client, teams):
     team = _new_team(full_client)
-    r = full_client.post("/ops/strike", json={"app": "compliance", "ticket": "CPL-1"},
+    r = full_client.post("/ops/strike", json={"app": "full-stack-application", "ticket": "CPL-1"},
                          params={"team": team["slug"], "token": team["token"]})
     assert r.status_code == 403
 
 
 def test_scoped_strike_allows_owned_app(full_client, teams):
     team = _new_team(full_client)
-    teams.assign_app("compliance", "widgets")
-    r = full_client.post("/ops/strike", json={"app": "compliance", "ticket": "CPL-1"},
+    teams.assign_app("full-stack-application", "widgets")
+    r = full_client.post("/ops/strike", json={"app": "full-stack-application", "ticket": "CPL-1"},
                          params={"team": team["slug"], "token": team["token"]})
     assert r.status_code == 200, r.text
     s = full_client.get("/ops/state", params={"team": team["slug"], "token": team["token"]}).json()
@@ -124,8 +124,8 @@ def test_scoped_strike_allows_owned_app(full_client, teams):
 
 
 def test_scoped_client_cannot_finalize_another_teams_lease(full_client, teams):
-    # unscoped strike (admin) creates a lease on 'compliance'
-    full_client.post("/ops/strike", json={"app": "compliance", "ticket": "CPL-9"})
+    # unscoped strike (admin) creates a lease on 'full-stack-application'
+    full_client.post("/ops/strike", json={"app": "full-stack-application", "ticket": "CPL-9"})
     team = _new_team(full_client)  # owns nothing
     r = full_client.post("/ops/leases/cpl-9/finalize",
                          params={"team": team["slug"], "token": team["token"]})
@@ -133,7 +133,7 @@ def test_scoped_client_cannot_finalize_another_teams_lease(full_client, teams):
 
 
 def test_unscoped_admin_can_still_act_on_any_lease(full_client):
-    full_client.post("/ops/strike", json={"app": "compliance", "ticket": "CPL-3"})
+    full_client.post("/ops/strike", json={"app": "full-stack-application", "ticket": "CPL-3"})
     assert full_client.post("/ops/leases/cpl-3/finalize").status_code == 200
 
 

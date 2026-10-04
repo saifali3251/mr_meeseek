@@ -74,8 +74,13 @@ class ScriptTrialRunner:
 
         env_root = scratch / "holo-root"
         env_root.mkdir(exist_ok=True)
+        build_script = self.holo_dir / "scripts" / f"golden-build.{req.app_name}.sh"
+        if not build_script.is_file():
+            build_script = self.holo_dir / "scripts" / "golden-build.full-stack-application.sh"
+        if not build_script.is_file():
+            build_script = self.holo_dir / "scripts" / "golden-build.sh"
         cmd = [
-            "bash", str(self.holo_dir / "scripts" / "golden-build.compliance.sh"), "--yes",
+            "bash", str(build_script), "--yes",
         ]
         env = {
             "HOLO_APP": req.app_name,

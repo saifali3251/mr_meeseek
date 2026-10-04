@@ -82,10 +82,7 @@ class ConsoleManager:
                 prompt: Optional[str] = None, target_repo: Optional[str] = None,
                 base_overrides: Optional[dict[str, str]] = None,
                 plan_only: bool = False) -> TaskRecord:
-        # Resolve a display alias (e.g. "compliance") to the real manifest key
-        # ("compliance-ui") BEFORE the lease API sees it — its allowlist only knows
-        # real keys, so an unresolved alias is a 422. The /ops strike route does the
-        # same; the Jira/console-trigger path went straight through without it.
+        # Resolve a display alias to the real manifest key BEFORE the lease API sees it.
         app = self.cfg.app_key(app or self.cfg.default_app)
         existing = self.store.get(ticket)
         if existing is not None and not existing.is_terminal:

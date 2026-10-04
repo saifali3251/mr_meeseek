@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # destroy.sh — tear down an ephemeral workspace: stop its stack, delete the clone.
 #
-# Usage:  ./destroy.sh JSQ-118
+# Usage:  ./destroy.sh FSA-101
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"

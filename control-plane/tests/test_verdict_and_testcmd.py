@@ -28,7 +28,7 @@ def test_parse_verdict(text, expected):
 
 def test_test_cmd_resolved_from_provider_and_captured(client, provider):
     provider.manifest_test_cmd = "pytest tests/test_architecture.py -q"
-    client.post("/leases", json={"app": "compliance", "ticket": "CPL-1"})
+    client.post("/leases", json={"app": "full-stack-application", "ticket": "CPL-1"})
     ev = client.post("/leases/cpl-1/finalize").json()
     assert ev["test_cmd"] == "pytest tests/test_architecture.py -q"
     assert ev["test_exit"] == 0            # FakeProvider runs it green when set
@@ -36,7 +36,7 @@ def test_test_cmd_resolved_from_provider_and_captured(client, provider):
 
 def test_test_cmd_absent_when_manifest_unset(client, provider):
     assert provider.manifest_test_cmd is None   # default
-    client.post("/leases", json={"app": "compliance", "ticket": "CPL-2"})
+    client.post("/leases", json={"app": "full-stack-application", "ticket": "CPL-2"})
     ev = client.post("/leases/cpl-2/finalize").json()
     assert ev["test_cmd"] is None
 

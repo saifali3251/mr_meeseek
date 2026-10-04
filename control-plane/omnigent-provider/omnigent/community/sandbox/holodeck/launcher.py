@@ -11,7 +11,7 @@ programmatic_terminate) and `start_host`/`materialize_workspace` come for free.
 Config via env (read by whoever runs the provider — the omnigent CLI):
   HOLODECK_URL    control-plane base URL (default http://127.0.0.1:8099)
   HOLODECK_TOKEN  shared admin token for the REST API (optional)
-  HOLODECK_APP    app to strike (default "compliance")
+  HOLODECK_APP    app to strike (default "full-stack-application")
 
 NOTE: `start_host` (the default from ExecModelHostLauncher) backgrounds
 `omnigent host` *inside* the workspace — that's gated by the "where does the
@@ -81,21 +81,9 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
         super().__init__()
         self.base = os.environ.get("HOLODECK_URL", "http://127.0.0.1:8099").rstrip("/")
         self.token = os.environ.get("HOLODECK_TOKEN", "")
-        self.app = os.environ.get("HOLODECK_APP", "compliance")
+        self.app = os.environ.get("HOLODECK_APP", "full-stack-application")
         # Which compose SERVICE inside the app's composite the agent's shell/host
-        # process actually runs in — NOT the same thing as `self.app` (which
-        # manifest to strike) or the manifest's own HOLO_APP_SERVICE (which is
-        # tuned for readiness/finalize, e.g. compliance-ui's front-door "qong"
-        # gateway, not the code container). Composite apps need this set to the
-        # actual code container or run()/run_background() silently fall back to
-        # HOLO_APP_SERVICE and exec into the wrong one.
-        #
-        # Defaults to "cpl-webserver" — the only app in scope right now
-        # (compliance-ui's composite, compliance-backend bind-mounted in; see
-        # manifests/compliance-ui.sh's HOLO_GIT_SUBDIR comment). Override via env
-        # once a second app/service is in play; empty disables the override
-        # entirely (falls back to HOLO_APP_SERVICE, correct for single-service
-        # apps like plain "compliance").
+        # process actually runs in — defaults to "backend".
         self.exec_service = os.environ.get("HOLODECK_EXEC_SERVICE", "backend")
         # Comma-separated env var NAMES to forward from THIS process's own
         # environment (the Omnigent server pod's — already populated from
@@ -159,7 +147,7 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
     def provision(self, ticket: str) -> str:
         """Create a lease (strike) for a JIRA TICKET; return its id as the sandbox id.
 
-        The argument is the ticket key ("JSQ-118"), not an arbitrary sandbox
+        The argument is the ticket key ("FSA-101"), not an arbitrary sandbox
         name. That is load-bearing, not cosmetic: the control plane derives the
         lease id as holo_id(ticket) — and the workspace dir, compose project
         (ws-<id>) and git branch (agent/<id>) all follow from it. The console
@@ -198,13 +186,13 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
         if not _TICKET_RE.match(ticket or ""):
             raise click.ClickException(
                 f"holodeck: {ticket!r} is not a valid ticket id. Pass the Jira KEY "
-                "(e.g. 'JSQ-118'), not a URL or a generated sandbox name."
+                "(e.g. 'FSA-101'), not a URL or a generated sandbox name."
             )
         if not _JIRA_KEY_RE.match(ticket):
             log.warning(
                 "holodeck: provision(%r) does not look like a Jira key — if this "
                 "came from Omnigent rather than the console, ticket->lease "
-                "correlation will not work. Expected e.g. 'JSQ-118'.", ticket
+                "correlation will not work. Expected e.g. 'FSA-101'.", ticket
             )
         _, body = self._req("POST", "/leases", body={"app": self.app, "ticket": ticket})
         lease_id = body["lease_id"]

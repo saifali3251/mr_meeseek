@@ -3,9 +3,7 @@
 # ("Fieldwork") golden.
 #
 # COMPOSITE as of the 2026-09-22 repo split: two repos (test_backend,
-# test_frontend), cloned as siblings under HOLO_SRC — same shape as
-# control-tower's golden-build, just two repos instead of six and no
-# credential minting (every base image here is public).
+# test_frontend), cloned as siblings under HOLO_SRC.
 #
 # Steps:
 #   1. checks out/refreshes both repos under the composite root (HOLO_SRC)

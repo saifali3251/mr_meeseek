@@ -37,8 +37,8 @@ def _client_with_token(manifests_dir, provider, token):
 
 def test_auth_required_when_token_set(manifests_dir, provider):
     c = _client_with_token(manifests_dir, provider, "s3cret")
-    assert c.post("/leases", json={"app": "compliance", "ticket": "CPL-1"}).status_code == 401
-    ok = c.post("/leases", json={"app": "compliance", "ticket": "CPL-1"},
+    assert c.post("/leases", json={"app": "full-stack-application", "ticket": "CPL-1"}).status_code == 401
+    ok = c.post("/leases", json={"app": "full-stack-application", "ticket": "CPL-1"},
                 headers={"Authorization": "Bearer s3cret"})
     assert ok.status_code == 201
 
