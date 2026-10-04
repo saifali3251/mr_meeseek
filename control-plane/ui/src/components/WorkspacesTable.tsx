@@ -122,8 +122,9 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
               <th className="py-3.5 px-6 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-meeseek-border">
-            {leases.map((lease) => {
+          <tbody>
+            {leases.map((lease, wsIdx) => {
+              const accent = ["cyan", "orange", "green", "violet"][wsIdx % 4];
               const task = getTaskForLease(lease);
               const isExpanded = expandedLeaseId === lease.lease_id;
               const jiraLink = jiraBaseUrl ? `${jiraBaseUrl.replace(/\/$/, "")}/browse/${lease.ticket}` : null;
@@ -151,14 +152,12 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
               return (
                 <React.Fragment key={lease.lease_id}>
+                  {/* gap between workspaces so each one reads as its own block */}
+                  {wsIdx > 0 && <tr className="mee-ws-gap" aria-hidden="true"><td colSpan={7} /></tr>}
                   {/* Workspace Summary Row */}
                   <tr
                     onClick={() => toggleExpand(lease.lease_id)}
-                    className={`cursor-pointer transition-colors ${
-                      isExpanded
-                        ? "bg-meeseek-900/90 border-l-4 border-l-cyan-400"
-                        : "hover:bg-meeseek-900/50"
-                    }`}
+                    className={`mee-ws-row mee-acc-${accent} cursor-pointer ${isExpanded ? "is-open" : ""}`}
                   >
                     {/* Ticket & Lease ID */}
                     <td className="py-4 px-6">
@@ -360,8 +359,8 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
                   {/* CONCEPT A: INLINE EXPANDABLE ACCORDION ROW */}
                   {isExpanded && (
-                    <tr className="bg-meeseek-950/95 animate-fadeIn">
-                      <td colSpan={7} className="p-4 sm:p-6 border-b border-meeseek-border">
+                    <tr className={`mee-ws-detail mee-acc-${accent} animate-fadeIn`}>
+                      <td colSpan={7} className="p-4 sm:p-6">
                         <WorkflowDAGStepper
                           lease={lease}
                           task={task}

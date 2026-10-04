@@ -169,11 +169,13 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
   lease,
   jiraBaseUrl,
 }) => {
-  const currentIdx = getStageIndex(task?.workflow_state, lease, task);
+  // When the PR is delivered every step is done (nothing left "in progress").
+  const prDelivered = !!(lease?.pr_url || task?.evidence?.pr_url);
+  const currentIdx = prDelivered ? STAGES.length : getStageIndex(task?.workflow_state, lease, task);
   const [selectedStageIdx, setSelectedStageIdx] = useState<number | null>(null);
   const [copiedFinalize, setCopiedFinalize] = useState<boolean>(false);
 
-  const activeInspectIdx = selectedStageIdx !== null ? selectedStageIdx : currentIdx;
+  const activeInspectIdx = selectedStageIdx !== null ? selectedStageIdx : Math.min(currentIdx, STAGES.length - 1);
   const activeInspectStage = STAGES[activeInspectIdx];
 
   const stageStatus: "COMPLETED" | "IN_PROGRESS" | "PENDING" = 
@@ -219,89 +221,53 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
   };
 
   return (
-    <div className="bg-meeseek-950/70 rounded-2xl p-5 border border-meeseek-border/80">
-      {/* Visual State Machine Stepper Pipeline */}
-      <div className="py-2 overflow-x-auto">
-        <div className="flex items-center min-w-[720px] justify-between relative px-4">
-          {/* Background Connecting Line */}
-          <div className="absolute top-5 left-10 right-10 h-0.5 bg-slate-800 -z-0" />
-          
+    <div className="mee-flow rounded-2xl p-5 border border-meeseek-border/80">
+      {/* Visual State Machine Stepper Pipeline (Meeseek style) */}
+      <div className="py-3 overflow-x-auto">
+        <div className="mee-steps relative grid grid-cols-6 min-w-[760px]" style={{ ["--progress" as any]: `${Math.min(currentIdx, STAGES.length - 1) / (STAGES.length - 1)}` }}>
+          {/* track + live progress */}
+          <div className="mee-track" aria-hidden="true"><span className="mee-track-fill" /></div>
+
           {STAGES.map((stage, idx) => {
             const Icon = stage.icon;
             const isCompleted = idx < currentIdx;
             const isCurrent = idx === currentIdx;
             const isSelected = idx === activeInspectIdx;
-
-            let nodeStyle = "border-slate-800 bg-meeseek-900 text-slate-500";
-            let pulseBadge = null;
-
-            if (isCompleted) {
-              nodeStyle = "border-emerald-500 bg-emerald-950/60 text-emerald-400 shadow-md shadow-emerald-500/10";
-            } else if (isCurrent) {
-              if (isFailed || isGuardrailBlocked) {
-                nodeStyle = "border-red-500 bg-red-950/60 text-red-400 ring-4 ring-red-500/20";
-                pulseBadge = (
-                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                  </span>
-                );
-              } else if (stage.key === "PREVIEW" && (task?.halted || currentIdx === 3)) {
-                // Amber beacon when awaiting human review
-                nodeStyle = "border-amber-400 bg-amber-950/60 text-amber-300 ring-4 ring-amber-500/30 shadow-lg shadow-amber-500/20";
-                pulseBadge = (
-                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
-                  </span>
-                );
-              } else {
-                nodeStyle = "border-cyan-400 bg-cyan-950/60 text-cyan-300 ring-4 ring-cyan-500/20";
-                pulseBadge = (
-                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
-                  </span>
-                );
-              }
-            }
+            const tone =
+              isCompleted ? "done"
+              : !isCurrent ? "todo"
+              : (isFailed || isGuardrailBlocked) ? "fail"
+              : (stage.key === "PREVIEW" && (task?.halted || currentIdx === 3)) ? "review"
+              : "live";
+            const statusText = { done: "Done", todo: "Up next", fail: "Needs attention", review: "Waiting for you", live: "In progress" }[tone];
 
             return (
-              <div
+              <button
+                type="button"
                 key={stage.key}
                 onClick={() => setSelectedStageIdx(idx)}
-                className={`relative z-10 flex flex-col items-center cursor-pointer group transition-all duration-150 ${
-                  isSelected ? "scale-105" : "hover:scale-102"
-                }`}
+                className={`mee-step mee-step--${tone} ${isSelected ? "is-selected" : ""} relative z-10 flex flex-col items-center text-center px-2 bg-transparent border-0 cursor-pointer`}
+                aria-current={isCurrent ? "step" : undefined}
+                aria-pressed={isSelected}
               >
-                {/* Node Circle */}
-                <div
-                  className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all ${nodeStyle} ${
-                    isSelected ? "ring-2 ring-white" : ""
-                  }`}
-                >
-                  {isCompleted ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                  ) : (
-                    <Icon className="w-4 h-4" />
-                  )}
-                  {pulseBadge}
-                </div>
-
-                {/* Clean Node Label */}
-                <div className="mt-2 text-center max-w-[120px]">
-                  <p className={`text-xs sm:text-sm font-semibold ${isCurrent || isSelected ? "text-white font-bold" : "text-slate-400"}`}>
-                    {stage.stepNum}. {stage.label}
-                  </p>
-                </div>
-              </div>
+                <span className="mee-node">
+                  {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Icon className="w-5 h-5" />}
+                </span>
+                <span className="mt-3 text-[11px] font-mono font-semibold tracking-[.14em] uppercase text-slate-500">
+                  Step {String(stage.stepNum).padStart(2, "0")}
+                </span>
+                <span className={`mt-1 text-sm leading-snug font-semibold ${isCurrent || isSelected ? "text-white" : "text-slate-300"}`}>
+                  {stage.label}
+                </span>
+                <span className="mee-step-status mt-1.5 text-[11px] font-mono">{statusText}</span>
+              </button>
             );
           })}
         </div>
       </div>
 
       {/* Inline Stage Inspector Panel */}
-      <div className="mt-5 pt-4 border-t border-slate-800/80">
+      <div className="mt-4 pt-5 border-t border-meeseek-border">
         {/* Step Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
@@ -337,15 +303,15 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
         </div>
 
         {/* Dynamic Context-Aware Inspector Content */}
-        <div className="bg-meeseek-900 rounded-xl p-4 sm:p-5 border border-slate-800">
+        <div key={activeInspectIdx} className="mee-inspector animate-fadeIn rounded-2xl p-4 sm:p-5 border border-meeseek-border">
           {/* Dynamic description updating with step status */}
-          <p className="text-sm text-slate-200 leading-relaxed mb-4">
+          <p className="mee-lede text-[15px] text-slate-200 leading-relaxed mb-4">
             {dynamicDescription}
           </p>
 
           {/* STEP 1: WORKSPACE STRIKE */}
           {activeInspectIdx === 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-800 font-mono text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 font-mono text-xs mee-facts">
               <div>
                 <span className="text-slate-400 text-xs block mb-1">Workspace ID</span>
                 <span className="text-slate-100 font-bold">{lease?.lease_id || "ws-fsa-12"}</span>
@@ -363,7 +329,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
 
           {/* STEP 2: ENVIRONMENT READY */}
           {activeInspectIdx === 1 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-800 font-mono text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 font-mono text-xs mee-facts">
               <div>
                 <span className="text-slate-400 text-xs block mb-1">Target Application</span>
                 <span className="text-cyan-300 font-bold">{lease?.target_repo || lease?.app || "full-stack-application"}</span>
@@ -381,7 +347,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
 
           {/* STEP 3: AGENT IMPLEMENTATION */}
           {activeInspectIdx === 2 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-800 font-mono text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 font-mono text-xs mee-facts">
               <div>
                 <span className="text-slate-400 text-xs block mb-1">Active Persona</span>
                 <span className="text-cyan-300 font-bold">Debby (Senior Full-Stack Engineer)</span>
@@ -498,7 +464,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                 <span className="text-xs text-slate-400">Impartial Outside-Sandbox Validation</span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs mee-facts">
                 <div>
                   <span className="text-slate-400 text-xs block mb-1">Verification Command</span>
                   <span className="text-cyan-300 bg-slate-950 px-2.5 py-1 rounded border border-slate-800 block truncate font-bold">
