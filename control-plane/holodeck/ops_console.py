@@ -19,13 +19,61 @@ on the lease API itself (`GET /leases`, `/environments`, `POST /leases`, …).
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import secrets
+import threading
 from dataclasses import asdict
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
+
+log = logging.getLogger("holodeck.ops_console")
+
+
+class OpsStateBroadcaster:
+    """Pub/sub broadcaster for real-time Server-Sent Events (SSE).
+
+    Maintains active SSE subscriber queues and dispatches notifications
+    thread-safely across worker threads to the asyncio event loop.
+    """
+    def __init__(self):
+        self._listeners: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = set()
+        self._lock = threading.Lock()
+
+    def subscribe(self, loop: asyncio.AbstractEventLoop) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=20)
+        with self._lock:
+            self._listeners.add((loop, q))
+        return q
+
+    def unsubscribe(self, loop: asyncio.AbstractEventLoop, q: asyncio.Queue) -> None:
+        with self._lock:
+            self._listeners.discard((loop, q))
+
+    def notify(self) -> None:
+        with self._lock:
+            listeners = list(self._listeners)
+        for loop, q in listeners:
+            if loop.is_closed():
+                continue
+            def _push(queue=q):
+                if queue.full():
+                    try:
+                        queue.get_nowait()
+                    except Exception:
+                        pass
+                try:
+                    queue.put_nowait(True)
+                except Exception:
+                    pass
+            try:
+                loop.call_soon_threadsafe(_push)
+            except Exception:
+                pass
 
 from holodeck.config import Config
 from holodeck.models import TICKET_RE, LeaseStatus
@@ -35,6 +83,7 @@ from holodeck.teams import (SLUG_RE, Team, TeamExistsError, TeamStore,
                            resolve_team, set_team_cookies)
 
 _ACTIVE = (LeaseStatus.PENDING, LeaseStatus.QUEUED, LeaseStatus.READY)
+_RUNNING = (LeaseStatus.PENDING, LeaseStatus.READY)
 
 
 class StrikeRequest(BaseModel):
@@ -98,6 +147,7 @@ def _lease_dict(l, cfg=None) -> dict:
         "seed_rows": h.seed_rows if h else None,   # live status: warm-DB seeded-row count
         "compose_project": h.compose_project if h else None,
         "evidence": asdict(l.evidence) if l.evidence else None,
+        "pr_url": (l.evidence.pr_url if l.evidence and getattr(l.evidence, "pr_url", None) else None),
     }
 
 
@@ -107,6 +157,9 @@ def build_ops_router(service: LeaseService, cfg: Config,
     existed: every route below resolves to an unscoped/admin view, since
     `resolve_team()` short-circuits to None with no store to check against."""
     r = APIRouter(tags=["console"])
+    broadcaster = OpsStateBroadcaster()
+    r.broadcaster = broadcaster
+    service.add_change_listener(broadcaster.notify)
 
     def _owned_apps(team: Optional[Team]) -> Optional[set[str]]:
         """None = unscoped (see everything — the platform admin view, and the
@@ -121,21 +174,28 @@ def build_ops_router(service: LeaseService, cfg: Config,
         owned = _owned_apps(team)
         visible = (lambda app: owned is None or app in owned)
         leases = [l for l in service.store.all() if visible(l.app)]
-        active: dict[str, int] = {}
+        running: dict[str, int] = {}
         for l in leases:
-            if l.status in _ACTIVE:
-                active[l.app] = active.get(l.app, 0) + 1
+            if l.status in _RUNNING:
+                running[l.app] = running.get(l.app, 0) + 1
         visible_apps = sorted(a for a in cfg.apps if visible(a))
         envs = []
         for name in visible_apps:
             problems = service.preflight(name)
-            envs.append({"app": cfg.app_label(name), "ready": not problems,
-                         "problems": problems, "active_leases": active.get(name, 0)})
+            info = service.golden_info(name) if hasattr(service, "golden_info") else {}
+            envs.append({
+                "app": cfg.app_label(name), "ready": not problems,
+                "problems": problems, "active_leases": running.get(name, 0),
+                "golden_updated_at": info.get("updated_at"),
+                "golden_path": info.get("path"),
+            })
         live = sorted((l for l in leases if l.status != LeaseStatus.RELEASED),
                       key=lambda l: l.created_at, reverse=True)
         default_key = cfg.app_key(cfg.default_app)
         default_app = (cfg.app_label(default_key) if default_key in visible_apps
                       else (cfg.app_label(visible_apps[0]) if visible_apps else None))
+        default_golden = service.golden_info(default_key) if hasattr(service, "golden_info") else {}
+
         return {
             "provider": service.provider.name,
             "now": time.time(),
@@ -143,20 +203,42 @@ def build_ops_router(service: LeaseService, cfg: Config,
             # the page's JS to just this team's apps/leases/onboarding entry point.
             "team": {"slug": team.slug, "name": team.name} if team else None,
             "kpis": {
-                "live": sum(active.values()),
+                "live": sum(running.values()),
+                "queued": sum(1 for l in leases if l.status == LeaseStatus.QUEUED),
                 "environments_ready": sum(1 for e in envs if e["ready"]),
                 "environments_total": len(envs),
                 "max_leases": cfg.max_leases,
                 "max_app_leases": getattr(service, "max_app_leases", cfg.max_app_leases),
-                "queued": sum(1 for l in leases if l.status == LeaseStatus.QUEUED),
             },
             "apps": [cfg.app_label(a) for a in visible_apps],
             "default_app": default_app,
+            "golden": {
+                "app": default_app,
+                "ready": any(e["ready"] for e in envs) if envs else False,
+                "updated_at": default_golden.get("updated_at"),
+                "path": default_golden.get("path"),
+            },
+            "jira": {
+                "connected": bool(cfg.jira_enabled and cfg.jira_base_url),
+                "base_url": cfg.jira_base_url or "",
+                "project": cfg.jira_project or "FSA",
+                "webhook_mode": bool(cfg.jira_webhook_secret or cfg.jira_enabled),
+            },
             "jira_base": cfg.jira_base_url,   # lets the page link a ticket -> Jira issue
             "preview_url": cfg.preview_url,   # static preview link (else per-lease loopback)
             "environments": envs,
             "leases": [_lease_dict(l, cfg) for l in live],
         }
+
+    def _full_state(app_state, team: Optional[Team] = None) -> dict:
+        snap = _snapshot(team)
+        console = getattr(app_state, "console", None)
+        snap["runs"] = console.board() if console is not None else []
+        pool = getattr(app_state, "pool", None)
+        snap["pool"] = pool.state() if pool is not None else {"enabled": False}
+        golden_sync = getattr(app_state, "golden_sync", None)
+        snap["golden_sync"] = golden_sync.state() if golden_sync is not None else {}
+        return snap
 
     def _resolve_and_stamp(request: Request, response: Response) -> Optional[Team]:
         """Resolve the team (query param wins, else the cookie) and, if a query
@@ -184,20 +266,49 @@ def build_ops_router(service: LeaseService, cfg: Config,
     @r.get("/ops/state")
     def ops_state(request: Request, response: Response) -> dict:
         team = _resolve_and_stamp(request, response)
-        snap = _snapshot(team)
-        # Fold in the agent-run board (session status / agent / needs-input) from
-        # the co-located console manager, so /ops is the ONE console showing both
-        # leases and runs. Absent if the console isn't mounted (cfg.console_enabled=0).
-        console = getattr(request.app.state, "console", None)
-        snap["runs"] = console.board() if console is not None else []
-        # Warm-pool visibility. Without this the only evidence a pool exists is a
-        # log line at startup, so a misconfigured pool (e.g. pool_apps resolving
-        # empty) looks identical to a working one until every strike is slow.
-        pool = getattr(request.app.state, "pool", None)
-        snap["pool"] = pool.state() if pool is not None else {"enabled": False}
-        golden_sync = getattr(request.app.state, "golden_sync", None)
-        snap["golden_sync"] = golden_sync.state() if golden_sync is not None else {}
-        return snap
+        return _full_state(request.app.state, team)
+
+    @r.get("/ops/events")
+    async def ops_events(request: Request):
+        team = resolve_team(request, teams)
+        limit = int(request.query_params.get("limit", 0))
+        loop = asyncio.get_running_loop()
+        q = broadcaster.subscribe(loop)
+
+        async def event_generator():
+            try:
+                # 1. Immediately yield initial state snapshot
+                initial = _full_state(request.app.state, team)
+                yield f"data: {json.dumps(initial)}\n\n"
+                sent = 1
+                if limit > 0 and sent >= limit:
+                    return
+
+                # 2. Wait for push notifications or keepalive timeout
+                while True:
+                    try:
+                        await asyncio.wait_for(q.get(), timeout=15.0)
+                        updated = _full_state(request.app.state, team)
+                        yield f"data: {json.dumps(updated)}\n\n"
+                        sent += 1
+                        if limit > 0 and sent >= limit:
+                            return
+                    except asyncio.TimeoutError:
+                        yield ": ping\n\n"
+            except (asyncio.CancelledError, GeneratorExit):
+                pass
+            finally:
+                broadcaster.unsubscribe(loop, q)
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @r.post("/ops/teams")
     def ops_new_team(body: NewTeamRequest) -> dict:
@@ -245,7 +356,33 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(409, f"lease '{e.lease_id}' already exists")
         except ProviderError as e:
             raise HTTPException(502, str(e))
+        broadcaster.notify()
         return _lease_dict(lease, cfg)
+
+    @r.get("/ops/jira/verify/{ticket}")
+    def ops_jira_verify(ticket: str, request: Request) -> dict:
+        ticket = ticket.strip().upper()
+        if not cfg.jira_enabled or not cfg.jira_base_url:
+            return {"connected": False, "exists": None, "ticket": ticket, "reason": "Jira integration not configured"}
+
+        bridge = getattr(request.app.state, "jira_bridge", None)
+        if not bridge or not getattr(bridge, "jira", None):
+            return {"connected": False, "exists": None, "ticket": ticket, "reason": "Jira bridge not initialized"}
+
+        try:
+            issue = bridge.jira.get_issue(ticket)
+            if issue and issue.get("summary"):
+                return {
+                    "connected": True,
+                    "exists": True,
+                    "ticket": ticket,
+                    "summary": issue.get("summary"),
+                    "issuetype": issue.get("issuetype"),
+                    "labels": issue.get("labels", []),
+                }
+            return {"connected": True, "exists": False, "ticket": ticket}
+        except Exception as e:
+            return {"connected": True, "exists": False, "ticket": ticket, "detail": str(e)}
 
     @r.post("/ops/leases/{lease_id}/finalize")
     def ops_finalize(lease_id: str, request: Request, response: Response) -> dict:
@@ -260,6 +397,7 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(404, "no such lease")
         except ProviderError as e:
             raise HTTPException(502, str(e))
+        broadcaster.notify()
         return {"lease_id": lease_id, **asdict(ev)}
 
     @r.post("/ops/leases/{lease_id}/extend")
@@ -270,7 +408,9 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(404, "no such lease")
         _check_lease_owned(lease.app, team)
         try:
-            return _lease_dict(service.extend(lease_id, body.ttl_s), cfg)
+            res = _lease_dict(service.extend(lease_id, body.ttl_s), cfg)
+            broadcaster.notify()
+            return res
         except KeyError:
             raise HTTPException(404, "no such lease")
 
@@ -282,7 +422,9 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(404, "no such lease")
         _check_lease_owned(lease.app, team)
         try:
-            return _lease_dict(service.release(lease_id), cfg)
+            res = _lease_dict(service.release(lease_id), cfg)
+            broadcaster.notify()
+            return res
         except KeyError:
             raise HTTPException(404, "no such lease")
         except ProviderError as e:
@@ -293,6 +435,7 @@ def build_ops_router(service: LeaseService, cfg: Config,
         if body.role and body.role != "superadmin":
             raise HTTPException(403, "Superadmin role required to update cluster capacity limits")
         limit = service.set_max_app_leases(body.max_app_leases)
+        broadcaster.notify()
         return {"max_app_leases": limit}
 
     @r.post("/ops/auth/login", response_model=LoginResponse)

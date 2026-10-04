@@ -449,3 +449,34 @@ def test_webhook_route_secret_and_dispatch():
     assert c.post("/jira/webhook", json=payload).status_code == 401          # missing secret
     r = c.post("/jira/webhook?secret=s3cret", json=payload)
     assert r.status_code == 200 and r.json()["result"] == "started"
+
+
+def test_webhook_route_no_secret_allows_requests():
+    cfg = Config(provider="fake", console_driver="omnigent", jira_enabled=True,
+                 jira_fake=True, jira_webhook_secret="")  # no secret configured
+    lease = FakeLeaseClient()
+    omni = FakeOmnigentClient(lease)
+    jira = FakeJiraClient()
+    app = FastAPI()
+    mount_console(app, cfg, lease_client=lease, omni_client=omni, jira_client=jira, start_poller=False)
+    c = TestClient(app)
+
+    payload = {"webhookEvent": "comment_created", "issue": {"key": "CPL-10"},
+               "comment": {"author": {"accountId": "u1"}, "body": "/holodeck run"}}
+    # Must succeed with 200 OK without secret
+    r = c.post("/jira/webhook", json=payload)
+    assert r.status_code == 200 and r.json()["result"] == "started"
+
+
+def test_jira_inbound_poller_disabled_by_default():
+    cfg = Config(provider="fake", console_driver="omnigent", jira_enabled=True,
+                 jira_fake=True, jira_project="CPL", jira_poll_interval_s=0)
+    lease = FakeLeaseClient()
+    omni = FakeOmnigentClient(lease)
+    jira = FakeJiraClient()
+    app = FastAPI()
+    mount_console(app, cfg, lease_client=lease, omni_client=omni, jira_client=jira, start_poller=True)
+    # Since interval is 0, jira_inbound_poller must NOT be started
+    assert not hasattr(app.state, "jira_inbound_poller")
+    assert hasattr(app.state, "console_poller")
+    app.state.console_poller.stop()

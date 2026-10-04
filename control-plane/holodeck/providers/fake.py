@@ -144,6 +144,10 @@ class FakeProvider:
     def prepare(self, app: Optional[str] = None) -> list[str]:
         return []
 
+    def golden_info(self, app: Optional[str] = None) -> dict:
+        import time
+        return {"exists": True, "updated_at": time.time() - 3600, "path": "/fake/golden"}
+
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             file_copy=True, one_shot_exec=True, streaming_exec=True,
