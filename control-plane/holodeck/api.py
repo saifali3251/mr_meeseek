@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import (Depends, FastAPI, Header, HTTPException, Query, Request,
                     Response, WebSocket, WebSocketDisconnect)
+from fastapi.middleware.cors import CORSMiddleware
 
 from holodeck.config import Config
 from holodeck.golden_sync import GoldenSyncManager
@@ -55,6 +56,13 @@ def create_app(cfg: Config, service: LeaseService,
               onboarding: Optional[OnboardingService] = None,
               golden_sync: Optional[GoldenSyncManager] = None) -> FastAPI:
     app = FastAPI(title="Holodeck Lease API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     if golden_sync is None:
         pool = getattr(service.provider, "pool", None)
