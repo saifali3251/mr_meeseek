@@ -1,31 +1,45 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({
-  plugins: [react()],
-  base: "/console/",
-  server: {
-    host: true,
-    port: 5174,
-    allowedHosts: true,
-    proxy: {
-      "/ops": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-      "/api": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-      "/onboarding": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-      "/leases": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const target = env.VITE_API_TARGET || process.env.VITE_API_TARGET || "https://8.234.121.183.sslip.io";
+
+  return {
+    plugins: [react()],
+    base: "/console/",
+    server: {
+      host: true,
+      port: 5174,
+      allowedHosts: true,
+      proxy: {
+        "/ops": {
+          target,
+          changeOrigin: true,
+          secure: false,
+        },
+        "/api": {
+          target,
+          changeOrigin: true,
+          secure: false,
+        },
+        "/onboarding": {
+          target,
+          changeOrigin: true,
+          secure: false,
+        },
+        "/leases": {
+          target,
+          changeOrigin: true,
+          secure: false,
+        },
+        "/console/tasks": {
+          target,
+          changeOrigin: true,
+          secure: false,
+        },
       },
     },
-  },
+  };
 });
 
