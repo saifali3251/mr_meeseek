@@ -18,10 +18,10 @@ import httpx
 log = logging.getLogger("holodeck.assistant")
 
 DEFAULT_MODELS = [
-    "gemini-2.5-flash",
+    "gemini-3.5-flash",
     "gemini-flash-latest",
     "gemini-3.5-flash-lite",
-    "gemini-3.5-flash",
+    "gemini-2.5-flash",
     "gemini-1.5-flash",
 ]
 
@@ -286,8 +286,8 @@ The following is the live status of the cluster at this exact second. Ground you
                             "grounded": False,
                         }
 
-                    if resp.status_code == 404:
-                        log.info("Model %s returned 404, trying next candidate...", model_name)
+                    if resp.status_code in (404, 503):
+                        log.info("Model %s returned HTTP %d, failing over to next candidate...", model_name, resp.status_code)
                         last_error = resp.text
                         continue  # Try next candidate model
 
@@ -312,7 +312,7 @@ The following is the live status of the cluster at this exact second. Ground you
             except httpx.HTTPStatusError as e:
                 log.exception("Gemini API HTTP error on model %s: %s", model_name, e)
                 status_code = e.response.status_code
-                if status_code == 404:
+                if status_code in (404, 503):
                     last_error = e.response.text
                     continue
                 if status_code == 429:

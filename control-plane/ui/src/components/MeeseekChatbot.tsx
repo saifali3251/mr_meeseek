@@ -204,60 +204,95 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
         );
       }
 
+      // Helper for inline tokens (bold, code, links)
+      const renderInlineTokens = (text: string) => {
+        const tokens = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g);
+        return tokens.map((token, tIdx) => {
+          if (token.startsWith("`") && token.endsWith("`")) {
+            return (
+              <code key={tIdx} className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-xs border border-slate-700/60">
+                {token.slice(1, -1)}
+              </code>
+            );
+          }
+          if (token.startsWith("**") && token.endsWith("**")) {
+            return <strong key={tIdx} className="font-bold text-white">{token.slice(2, -2)}</strong>;
+          }
+          const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+          if (linkMatch) {
+            return (
+              <a 
+                key={tIdx} 
+                href={linkMatch[2]} 
+                target="_blank" 
+                rel="noreferrer" 
+                className="text-cyan-400 hover:text-cyan-300 underline font-medium"
+              >
+                {linkMatch[1]}
+              </a>
+            );
+          }
+          return token;
+        });
+      };
+
       // Regular markdown paragraphs
       return (
         <span key={index} className="whitespace-pre-wrap leading-relaxed text-sm">
           {part.split("\n").map((line, lIdx) => {
-            // Bullet point
-            const isBullet = line.trim().startsWith("- ") || line.trim().startsWith("• ");
-            const isHeader = line.trim().startsWith("### ") || line.trim().startsWith("## ") || line.trim().startsWith("# ");
+            const trimmed = line.trim();
 
-            let formattedLine = line;
-            if (isBullet) {
-              formattedLine = line.trim().replace(/^[-•]\s*/, "");
-            } else if (isHeader) {
-              formattedLine = line.trim().replace(/^#+\s*/, "");
-            }
-
-            // Inline bold and code replacements
-            const inlineTokens = formattedLine.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-
-            const renderedTokens = inlineTokens.map((token, tIdx) => {
-              if (token.startsWith("`") && token.endsWith("`")) {
-                return (
-                  <code key={tIdx} className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-xs border border-slate-700/60">
-                    {token.slice(1, -1)}
-                  </code>
-                );
-              }
-              if (token.startsWith("**") && token.endsWith("**")) {
-                return <strong key={tIdx} className="font-bold text-white">{token.slice(2, -2)}</strong>;
-              }
-              return token;
-            });
-
-            if (isHeader) {
+            // Headers: # through ######
+            const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+            if (headerMatch) {
+              const level = headerMatch[1].length;
+              const text = headerMatch[2];
+              const sizeClass = 
+                level === 1 ? "text-lg font-bold text-white mt-3 mb-1.5" :
+                level === 2 ? "text-base font-bold text-white mt-2.5 mb-1" :
+                level === 3 ? "text-sm font-bold text-cyan-300 mt-2 mb-1" :
+                "text-xs font-bold text-slate-200 uppercase tracking-wider mt-2 mb-0.5";
               return (
-                <div key={lIdx} className="font-bold text-white text-base mt-2 mb-1">
-                  {renderedTokens}
+                <div key={lIdx} className={sizeClass}>
+                  {renderInlineTokens(text)}
                 </div>
               );
             }
 
+            // Numbered List: 1. , 2. 
+            const numberedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+            if (numberedMatch) {
+              const num = numberedMatch[1];
+              const text = numberedMatch[2];
+              return (
+                <div key={lIdx} className="flex items-start space-x-2 my-1">
+                  <span className="text-cyan-400 font-mono text-xs mt-0.5 font-bold select-none">{num}.</span>
+                  <div className="flex-1">{renderInlineTokens(text)}</div>
+                </div>
+              );
+            }
+
+            // Bullet List: - , * , •
+            const isBullet = trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ");
             if (isBullet) {
+              const text = trimmed.replace(/^[-*•]\s*/, "");
               return (
                 <div key={lIdx} className="flex items-start space-x-2 my-0.5">
                   <span className="text-cyan-400 select-none mt-1">&bull;</span>
-                  <div className="flex-1">{renderedTokens}</div>
+                  <div className="flex-1">{renderInlineTokens(text)}</div>
                 </div>
               );
             }
 
+            // Empty line
+            if (!trimmed) {
+              return <div key={lIdx} className="h-1.5" />;
+            }
+
             return (
-              <React.Fragment key={lIdx}>
-                {renderedTokens}
-                {lIdx < part.split("\n").length - 1 && <br />}
-              </React.Fragment>
+              <div key={lIdx} className="my-0.5">
+                {renderInlineTokens(line)}
+              </div>
             );
           })}
         </span>
