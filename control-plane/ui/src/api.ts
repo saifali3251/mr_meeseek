@@ -247,4 +247,29 @@ export async function verifyJiraTicket(ticket: string): Promise<JiraVerifyResult
   }
 }
 
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+}
+
+export interface ChatResponse {
+  reply: string;
+  model?: string;
+  grounded?: boolean;
+}
+
+export async function sendChatMessage(messages: { role: string; content: string }[]): Promise<ChatResponse> {
+  const res = await fetch(`${BASE_URL}/ops/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Chat request failed: ${res.statusText}`);
+  }
+  return res.json();
+}
 

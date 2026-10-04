@@ -119,6 +119,15 @@ class LoginResponse(BaseModel):
     role: str
 
 
+class ChatMessagePayload(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessagePayload] = []
+
+
 # Fixed demo hostnames — the 3 provisioned preview envs. A lease maps to one of
 # them by its pool offset (preview_port - cfg.port_pool_start). We take that offset
 # MOD 3 so any pool port lands on a real mapped env rather than falling through to
@@ -309,6 +318,18 @@ def build_ops_router(service: LeaseService, cfg: Config,
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @r.post("/ops/chat")
+    async def ops_chat(body: ChatRequest, request: Request, response: Response) -> dict:
+        """Mr. Meeseeks Live Platform Copilot endpoint (Google Gemini powered)."""
+        team = _resolve_and_stamp(request, response)
+        state_snap = _full_state(request.app.state, team)
+        from holodeck.assistant import MeeseekAssistant
+        assistant = MeeseekAssistant()
+        # Convert pydantic models to dict list
+        raw_msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+        res = await assistant.chat(raw_msgs, state_snap)
+        return res
 
     @r.post("/ops/teams")
     def ops_new_team(body: NewTeamRequest) -> dict:
