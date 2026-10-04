@@ -178,10 +178,11 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err: any) {
+      console.error("Chatbot request error:", err);
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,
         role: "assistant",
-        content: `⚠️ **Mr. Meeseeks encountered an issue**: ${err.message || "Failed to reach control plane"}. Please check your connection or verify \`GEMINI_API_KEY\` in your environment.`,
+        content: "Something went wrong. Please try again in a moment.",
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMsg]);
