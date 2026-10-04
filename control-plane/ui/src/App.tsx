@@ -19,6 +19,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { JudgePlayground } from "./components/JudgePlayground";
 import { StrikeModal } from "./components/StrikeModal";
 import { LoginPage } from "./components/LoginPage";
+import { MeeseekChatbot } from "./components/MeeseekChatbot";
 
 type ActiveTab = "workspaces" | "onboarding" | "judge";
 
@@ -465,6 +466,9 @@ export const App: React.FC = () => {
         jira={state?.jira}
         onSuccess={loadState}
       />
+
+      {/* Mr. Meeseeks Live Grounded Copilot */}
+      <MeeseekChatbot />
     </div>
   );
 };
