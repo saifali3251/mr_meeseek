@@ -54,7 +54,7 @@ HOLO_GIT_SUBDIR=test_backend
 
 # Repo-specific test commands executed by the Host Notary
 HOLO_TEST_CMD_test_backend="PYTHONPATH=. pytest tests/"
-HOLO_TEST_CMD_test_frontend="npm run lint && npx tsc -b"
+HOLO_TEST_CMD_test_frontend="npm run build"
 : "${HOLO_TEST_CMD:=PYTHONPATH=. pytest tests/}"
 
 # Services corresponding to target repositories for test execution

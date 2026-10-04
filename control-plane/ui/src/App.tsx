@@ -22,6 +22,15 @@ import { LoginPage } from "./components/LoginPage";
 
 type ActiveTab = "workspaces" | "onboarding" | "judge";
 
+function formatGoldenAge(ts?: number | null): string {
+  if (!ts) return "Active snapshot";
+  const diffSec = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (diffSec < 60) return "Just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
+}
+
 export const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
     try {
@@ -339,16 +348,67 @@ export const App: React.FC = () => {
                 </p>
               </div>
               <div className="flex items-stretch gap-3">
-                {[
-                  { label: "Live workspaces", value: state?.kpis?.live ?? 0, tone: "text-cyan-400" },
-                  { label: "Golden images ready", value: `${state?.kpis?.environments_ready ?? 0}/${state?.kpis?.environments_total ?? 0}`, tone: "text-emerald-400" },
-                  { label: "Capacity", value: state?.kpis?.max_leases ?? 0, tone: "text-purple-400" },
-                ].map((k) => (
-                  <div key={k.label} className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[118px]">
-                    <div className="mee-stat">{k.value}</div>
-                    <div className={`text-[11px] font-mono uppercase tracking-wider mt-1.5 ${k.tone}`}>{k.label}</div>
+                {/* CARD 1: LIVE WORKSPACES */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[130px] flex flex-col justify-between">
+                  <div className="flex items-baseline justify-between">
+                    <div className="mee-stat">{state?.kpis?.live ?? 0}</div>
+                    {!!state?.kpis?.queued && state.kpis.queued > 0 && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        +{state.kpis.queued} queued
+                      </span>
+                    )}
                   </div>
-                ))}
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-cyan-400 mt-2">
+                    Live Workspaces
+                  </div>
+                </div>
+
+                {/* CARD 2: ACTIVE GOLDEN BUILD & FRESHNESS */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[160px] flex flex-col justify-between">
+                  <div className="flex items-center justify-between space-x-2">
+                    <span 
+                      className="text-sm font-bold text-white tracking-tight truncate max-w-[130px]" 
+                      title={state?.golden?.app || state?.default_app || "full-stack-application"}
+                    >
+                      {(state?.golden?.app || state?.default_app || "Full-Stack App")
+                        .replace("full-stack-application", "Full-Stack App")}
+                    </span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                      Ready (CoW)
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono text-emerald-400/90 mt-2 flex items-center justify-between">
+                    <span className="uppercase tracking-wider">Golden Build</span>
+                    <span 
+                      className="text-slate-400 font-mono text-[10px] ml-2" 
+                      title={state?.golden?.updated_at ? new Date(state.golden.updated_at * 1000).toLocaleString() : undefined}
+                    >
+                      {formatGoldenAge(state?.golden?.updated_at)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* CARD 3: JIRA INTEGRATION STATUS */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[160px] flex flex-col justify-between">
+                  <div className="flex items-center justify-between space-x-2">
+                    <span className="text-sm font-bold text-white tracking-tight">
+                      {state?.jira?.connected ? "Jira Cloud" : "Standalone"}
+                    </span>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium whitespace-nowrap ${
+                      state?.jira?.connected
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        : "bg-slate-700/30 text-slate-400 border border-slate-700/50"
+                    }`}>
+                      {state?.jira?.connected ? `● ${state?.jira?.project || "FSA"}` : "○ Offline"}
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono text-purple-400 mt-2 flex items-center justify-between">
+                    <span className="uppercase tracking-wider">Integration</span>
+                    <span className="text-slate-400 font-mono text-[10px] ml-2">
+                      {state?.jira?.connected ? "Real-time Sync" : "Local Sandbox"}
+                    </span>
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -402,6 +462,7 @@ export const App: React.FC = () => {
         onClose={() => setIsStrikeModalOpen(false)}
         apps={state?.apps || ["full-stack-application"]}
         defaultApp={state?.default_app || "full-stack-application"}
+        jira={state?.jira}
         onSuccess={loadState}
       />
     </div>

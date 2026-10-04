@@ -480,6 +480,13 @@ class LeaseService:
         app's missing golden fails it closed."""
         return self.provider.prepare(app)
 
+    def golden_info(self, app: Optional[str] = None) -> dict:
+        """Golden image metadata for `app` (or default app)."""
+        app_name = app or self.cfg.default_app
+        if hasattr(self.provider, "golden_info"):
+            return self.provider.golden_info(app_name)
+        return {"exists": False, "updated_at": None, "path": None}
+
     def capabilities(self):
         """What the active substrate supports, surfaced at /capabilities."""
         return self.provider.capabilities()

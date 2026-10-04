@@ -83,6 +83,7 @@ from holodeck.teams import (SLUG_RE, Team, TeamExistsError, TeamStore,
                            resolve_team, set_team_cookies)
 
 _ACTIVE = (LeaseStatus.PENDING, LeaseStatus.QUEUED, LeaseStatus.READY)
+_RUNNING = (LeaseStatus.PENDING, LeaseStatus.READY)
 
 
 class StrikeRequest(BaseModel):
@@ -172,21 +173,28 @@ def build_ops_router(service: LeaseService, cfg: Config,
         owned = _owned_apps(team)
         visible = (lambda app: owned is None or app in owned)
         leases = [l for l in service.store.all() if visible(l.app)]
-        active: dict[str, int] = {}
+        running: dict[str, int] = {}
         for l in leases:
-            if l.status in _ACTIVE:
-                active[l.app] = active.get(l.app, 0) + 1
+            if l.status in _RUNNING:
+                running[l.app] = running.get(l.app, 0) + 1
         visible_apps = sorted(a for a in cfg.apps if visible(a))
         envs = []
         for name in visible_apps:
             problems = service.preflight(name)
-            envs.append({"app": cfg.app_label(name), "ready": not problems,
-                         "problems": problems, "active_leases": active.get(name, 0)})
+            info = service.golden_info(name) if hasattr(service, "golden_info") else {}
+            envs.append({
+                "app": cfg.app_label(name), "ready": not problems,
+                "problems": problems, "active_leases": running.get(name, 0),
+                "golden_updated_at": info.get("updated_at"),
+                "golden_path": info.get("path"),
+            })
         live = sorted((l for l in leases if l.status != LeaseStatus.RELEASED),
                       key=lambda l: l.created_at, reverse=True)
         default_key = cfg.app_key(cfg.default_app)
         default_app = (cfg.app_label(default_key) if default_key in visible_apps
                       else (cfg.app_label(visible_apps[0]) if visible_apps else None))
+        default_golden = service.golden_info(default_key) if hasattr(service, "golden_info") else {}
+
         return {
             "provider": service.provider.name,
             "now": time.time(),
@@ -194,15 +202,27 @@ def build_ops_router(service: LeaseService, cfg: Config,
             # the page's JS to just this team's apps/leases/onboarding entry point.
             "team": {"slug": team.slug, "name": team.name} if team else None,
             "kpis": {
-                "live": sum(active.values()),
+                "live": sum(running.values()),
+                "queued": sum(1 for l in leases if l.status == LeaseStatus.QUEUED),
                 "environments_ready": sum(1 for e in envs if e["ready"]),
                 "environments_total": len(envs),
                 "max_leases": cfg.max_leases,
                 "max_app_leases": getattr(service, "max_app_leases", cfg.max_app_leases),
-                "queued": sum(1 for l in leases if l.status == LeaseStatus.QUEUED),
             },
             "apps": [cfg.app_label(a) for a in visible_apps],
             "default_app": default_app,
+            "golden": {
+                "app": default_app,
+                "ready": any(e["ready"] for e in envs) if envs else False,
+                "updated_at": default_golden.get("updated_at"),
+                "path": default_golden.get("path"),
+            },
+            "jira": {
+                "connected": bool(cfg.jira_enabled and cfg.jira_base_url),
+                "base_url": cfg.jira_base_url or "",
+                "project": cfg.jira_project or "FSA",
+                "webhook_mode": bool(cfg.jira_webhook_secret or cfg.jira_enabled),
+            },
             "jira_base": cfg.jira_base_url,   # lets the page link a ticket -> Jira issue
             "preview_url": cfg.preview_url,   # static preview link (else per-lease loopback)
             "environments": envs,
@@ -337,6 +357,31 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(502, str(e))
         broadcaster.notify()
         return _lease_dict(lease, cfg)
+
+    @r.get("/ops/jira/verify/{ticket}")
+    def ops_jira_verify(ticket: str, request: Request) -> dict:
+        ticket = ticket.strip().upper()
+        if not cfg.jira_enabled or not cfg.jira_base_url:
+            return {"connected": False, "exists": None, "ticket": ticket, "reason": "Jira integration not configured"}
+
+        bridge = getattr(request.app.state, "jira_bridge", None)
+        if not bridge or not getattr(bridge, "jira", None):
+            return {"connected": False, "exists": None, "ticket": ticket, "reason": "Jira bridge not initialized"}
+
+        try:
+            issue = bridge.jira.get_issue(ticket)
+            if issue and issue.get("summary"):
+                return {
+                    "connected": True,
+                    "exists": True,
+                    "ticket": ticket,
+                    "summary": issue.get("summary"),
+                    "issuetype": issue.get("issuetype"),
+                    "labels": issue.get("labels", []),
+                }
+            return {"connected": True, "exists": False, "ticket": ticket}
+        except Exception as e:
+            return {"connected": True, "exists": False, "ticket": ticket, "detail": str(e)}
 
     @r.post("/ops/leases/{lease_id}/finalize")
     def ops_finalize(lease_id: str, request: Request, response: Response) -> dict:
