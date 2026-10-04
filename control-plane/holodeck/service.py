@@ -110,6 +110,18 @@ class LeaseService:
         # (a restart's own reconcile pass re-derives reality from the store).
         self._queue: collections.deque[str] = collections.deque()
         self._queue_lock = threading.Lock()
+        self.max_app_leases = cfg.max_app_leases
+        # Re-hydrate existing queued leases from the store in FIFO order
+        for l in sorted(self.store.all(), key=lambda r: r.created_at):
+            if l.status == LeaseStatus.QUEUED:
+                self._queue.append(l.lease_id)
+
+    def set_max_app_leases(self, limit: int) -> int:
+        """Dynamically update the per-application active workspace capacity limit at runtime."""
+        self.max_app_leases = max(1, int(limit))
+        self.cfg.max_app_leases = self.max_app_leases
+        self._advance_queue()
+        return self.max_app_leases
 
     def _resolve_test_cmd(self, app: str, ticket: str, target_repo: Optional[str] = None) -> Optional[str]:
         """Test source: the app's manifest default (HOLO_TEST_CMD, or repo-specific
@@ -158,11 +170,12 @@ class LeaseService:
             expires_at=time.time() + ttl,
         )
 
-        # issue #8: capacity guard. Past max_leases, this lease QUEUES instead of
-        # 503ing — it already holds a record (committed intent), so it counts
-        # toward count_active() itself (see store.count_active) and will start
-        # striking once an existing lease frees a slot (_advance_queue, called
-        # from release() and from a strike finishing either way).
+        # Per-application active workspace capacity constraint (default: N=3)
+        max_for_app = getattr(self, "max_app_leases", self.cfg.max_app_leases)
+        if self.store.count_active_for_app(app) >= max_for_app:
+            return self._enqueue(lease)
+
+        # Total host capacity guard past max_leases
         if self.store.count_active() >= self.cfg.max_leases:
             return self._enqueue(lease)
 
@@ -321,46 +334,33 @@ class LeaseService:
         self._advance_queue()
 
     def _advance_queue(self) -> None:
-        """Start the next QUEUED lease(s) that can now get a strike slot.
-
-        Only the semaphore is checked here, deliberately not max_leases again:
-        a QUEUED lease already holds a capacity slot (counted in
-        count_active()) from the moment it was created — promoting it to
-        PENDING doesn't consume an ADDITIONAL one. Called from two distinct
-        trigger points that free different resources — release() (a capacity
-        slot) and a strike finishing (a concurrency slot) — so both queuing
-        reasons converge on this one gate.
-
-        Advances at most one lease per call, then returns: the strike it just
-        started will itself call this again via its own _release_strike_slot
-        when it finishes, so the queue drains one at a time without needing to
-        loop or hold the lock for a whole cascade.
-        """
+        """Start any QUEUED lease(s) that can now get a strike slot and has per-app capacity.
+        Advances all queued leases for which concurrency and per-app capacity are available."""
         with self._queue_lock:
+            remaining_queue: collections.deque[str] = collections.deque()
             while self._queue:
-                if not self._strike_semaphore.acquire(blocking=False):
-                    return  # no room right now; a future release will retry
                 next_id = self._queue.popleft()
                 lease = self.store.get(next_id)
                 if lease is None or lease.status != LeaseStatus.QUEUED:
-                    # released/expired/re-acquired while it waited — give the
-                    # slot back and try the next one instead of losing it.
-                    self._strike_semaphore.release()
+                    # released/expired/re-acquired while it waited
                     continue
-                # Auto-allocated leases reach here with no port yet (see
-                # acquire()/_enqueue) — reserve one now, right before the strike
-                # that will actually use it. An explicit preview port was
-                # already reserved up front, so this is a no-op for it.
-                if lease.preview_port is None:
-                    lease.preview_port = self.store.ports.reserve()
-                lease.status = LeaseStatus.PENDING
-                self.store.put(lease)
-                threading.Thread(
-                    target=self._strike_safe,
-                    args=(lease, lease.app, lease.ticket, lease.preview_port),
-                    name=f"strike-{next_id}", daemon=True,
-                ).start()
-                return
+
+                max_for_app = getattr(self, "max_app_leases", self.cfg.max_app_leases)
+                has_app_capacity = self.store.count_active_for_app(lease.app) < max_for_app
+
+                if has_app_capacity and self._strike_semaphore.acquire(blocking=False):
+                    if lease.preview_port is None:
+                        lease.preview_port = self.store.ports.reserve()
+                    lease.status = LeaseStatus.PENDING
+                    self.store.put(lease)
+                    threading.Thread(
+                        target=self._strike_safe,
+                        args=(lease, lease.app, lease.ticket, lease.preview_port),
+                        name=f"strike-{next_id}", daemon=True,
+                    ).start()
+                else:
+                    remaining_queue.append(next_id)
+            self._queue = remaining_queue
 
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
                  ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> Evidence:

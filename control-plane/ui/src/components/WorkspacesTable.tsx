@@ -20,7 +20,7 @@ interface WorkspacesTableProps {
   jiraBaseUrl: string;
   selectedLeaseId: string | null;
   onSelectLease: (leaseId: string) => void;
-  onDestroyLease: (leaseId: string) => void;
+  onDestroyLease: (leaseId: string, ticket?: string) => void;
   isDestroying: boolean;
   onExtendLease: (leaseId: string) => void;
   isExtending?: boolean;
@@ -72,7 +72,9 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
   const getTaskForLease = (lease: Lease) => {
     return tasks.find(
-      (t) => t.lease_id === lease.lease_id || t.ticket === lease.ticket
+      (t) =>
+        (t.lease_id && lease.lease_id && t.lease_id.toLowerCase() === lease.lease_id.toLowerCase()) ||
+        (t.ticket && lease.ticket && t.ticket.toLowerCase() === lease.ticket.toLowerCase())
     );
   };
 
@@ -138,7 +140,8 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
               const isPRReady =
                 lease.pr_url || task?.evidence?.pr_url || task?.workflow_state === "CERTIFIED_PR";
               const isAwaitingReview =
-                task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT";
+                (task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
+                task?.workflow_state !== "CODING";
               const isPreviewReady = lease.status === "ready" && !!lease.preview_url;
 
               return (
@@ -226,6 +229,11 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                           <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mr-1.5 animate-pulse"></span>
                           Agent Coding Turn
                         </span>
+                      ) : lease.status === "queued" || task?.workflow_state === "QUEUED" ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          <Clock className="w-3.5 h-3.5 mr-1.5 text-amber-400 animate-pulse" />
+                          Queued (Standby)
+                        </span>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
                           <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span>
@@ -248,10 +256,15 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                           <span>Port {lease.preview_port || 18000}</span>
                           <ExternalLink className="w-3 h-3" />
                         </a>
+                      ) : lease.status === "queued" ? (
+                        <span className="text-amber-400/80 font-mono text-xs inline-flex items-center space-x-1.5">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          <span>Waiting for capacity slot</span>
+                        </span>
                       ) : (
                         <span className="text-slate-500 font-mono text-xs inline-flex items-center space-x-1.5">
                           <span>Port {lease.preview_port || 18000}</span>
-                          {(lease.status === "pending" || lease.status === "queued" || !lease.status) && (
+                          {(lease.status === "pending" || !lease.status) && (
                             <span className="text-amber-400/80 text-[10px] font-sans font-medium px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
                               Booting...
                             </span>
@@ -329,7 +342,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
                         {/* Destroy Workspace Button */}
                         <button
-                          onClick={() => onDestroyLease(lease.lease_id)}
+                          onClick={() => onDestroyLease(lease.lease_id, lease.ticket)}
                           disabled={isDestroying}
                           title="Destroy workspace immediately"
                           className="p-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-500/20 hover:border-red-500/40 transition-colors"

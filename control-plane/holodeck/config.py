@@ -104,11 +104,29 @@ class Config:
     # (tests / first local bring-up); set HOLODECK_TOKEN on any shared box.
     token: str = field(default_factory=lambda: os.environ.get("HOLODECK_TOKEN", ""))
 
+    # Console UI Authentication & RBAC credentials
+    admin_password: str = field(
+        default_factory=lambda: os.environ.get("MEESEEK_ADMIN_PASSWORD")
+        or os.environ.get("HOLODECK_ADMIN_PASSWORD", "meeseek2026"))
+    superadmin_password: str = field(
+        default_factory=lambda: os.environ.get("MEESEEK_SUPERADMIN_PASSWORD")
+        or os.environ.get("HOLODECK_SUPERADMIN_PASSWORD", "meeseek-root-2026"))
+
     # capacity guard (issue #8): ~890 MB/ws, ~60 per 64 GB host. A new lease past
     # this QUEUES (status=queued) rather than hard-rejecting with a 503 — it
     # starts striking once an existing lease is released/expires/fails and
     # frees a slot. See LeaseService._advance_queue.
     max_leases: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_MAX_LEASES", "50")))
+
+    # Per-application active workspace capacity limit (default: 3).
+    # Bounds how many active (pending/ready) workspaces any single application can have at a time.
+    # Subsequent strikes for this application wait in a FIFO queue (status=queued) until an active
+    # workspace is released or completed.
+    max_app_leases: int = field(
+        default_factory=lambda: int(
+            os.environ.get("MEESEEK_MAX_APP_LEASES")
+            or os.environ.get("HOLODECK_MAX_APP_LEASES", "3")
+        ))
 
     # Run the strike (docker compose up, ~minutes) in a BACKGROUND thread so
     # POST /leases returns a `pending` lease immediately and never holds the

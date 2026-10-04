@@ -4,9 +4,12 @@ import {
   ChevronDown, 
   ShieldAlert, 
   Sparkles, 
-  Users
+  Users,
+  LogOut,
+  ShieldCheck,
+  UserCheck
 } from "lucide-react";
-import { KPIs, Team } from "../types";
+import { KPIs, Team, AuthUser } from "../types";
 
 export type Role = "admin" | "team" | "judge";
 
@@ -16,12 +19,16 @@ interface HeaderProps {
   lastUpdated: string;
   selectedRole: Role;
   onSelectRole: (role: Role) => void;
+  authUser?: AuthUser | null;
+  onSignOut?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   team,
   selectedRole,
   onSelectRole,
+  authUser,
+  onSignOut,
 }) => {
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -91,8 +98,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Right Bar: Role Dropdown (Live Sync removed as requested) */}
-          <div className="flex items-center space-x-4">
+          {/* Right Bar: Role Dropdown & Auth Session */}
+          <div className="flex items-center space-x-3">
             {/* Single Role Dropdown */}
             <div className="relative" ref={dropdownRef}>
               <button
@@ -151,6 +158,39 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Authenticated User & Sign Out */}
+            {authUser && (
+              <div className="flex items-center space-x-2 pl-3 border-l border-meeseek-border">
+                <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-meeseek-900 border border-slate-700/80 text-xs">
+                  {authUser.role === "superadmin" ? (
+                    <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                  ) : (
+                    <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
+                  )}
+                  <span className="font-mono font-medium text-slate-200">
+                    {authUser.username}
+                  </span>
+                  <span className={`text-[10px] uppercase font-mono font-bold px-1.5 py-0.5 rounded ${
+                    authUser.role === "superadmin" 
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/40" 
+                      : "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  }`}>
+                    {authUser.role}
+                  </span>
+                </div>
+
+                {onSignOut && (
+                  <button
+                    onClick={onSignOut}
+                    title="Sign out of Console"
+                    className="p-2 rounded-xl bg-meeseek-900 hover:bg-red-950/40 text-slate-400 hover:text-red-400 border border-meeseek-border hover:border-red-500/40 transition-colors focus:outline-none"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -69,7 +69,9 @@ def build_router(manager: ConsoleManager) -> APIRouter:
     @r.delete("/console/tasks/{ticket}", tags=["console"])
     def release(ticket: str):
         try:
-            return manager.release(ticket).as_dict()
+            rec = manager.release(ticket)
+            manager.store.delete(ticket)
+            return rec.as_dict()
         except ConsoleError as e:
             raise HTTPException(status_code=e.status_code, detail=str(e))
 

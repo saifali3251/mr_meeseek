@@ -18,7 +18,8 @@ log = logging.getLogger("holodeck.console")
 
 # lease status -> pipeline rollup shown on the board
 _PIPELINE = {"pending": "provisioning", "ready": "ready",
-             "released": "released", "failed": "failed"}
+             "released": "released", "failed": "failed",
+             "queued": "queued"}
 
 # GitHub PR URL, for recovering the agent's PR link from its narration when the
 # session-item scrape doesn't yield it (see ConsoleManager.refresh()).
@@ -117,7 +118,7 @@ class ConsoleManager:
             status=_PIPELINE.get(res.status, res.status),
             preview_url=preview_url, preview_port=res.preview_port,
             session_url=res.session_url,
-            workflow_state="PROVISIONING",
+            workflow_state="QUEUED" if res.status == "queued" else "PROVISIONING",
             plan_only=plan_only,
         )
         self.store.put(rec)
@@ -190,7 +191,7 @@ class ConsoleManager:
                     if rec.status == "ready":
                         rec.status = "waiting-input"
                 else:
-                    if rec.workflow_state in ("PROVISIONING", "WAITING_INPUT") and rec.status == "ready":
+                    if rec.workflow_state in ("PROVISIONING", "WAITING_INPUT", "QUEUED") and rec.status == "ready":
                         rec.workflow_state = "CODING"
                 if not rec.waiting:
                     # cleared: re-arm the notice + drop the stale elicitation

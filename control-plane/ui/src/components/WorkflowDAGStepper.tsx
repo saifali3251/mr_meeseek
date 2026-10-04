@@ -93,12 +93,12 @@ function getStageIndex(state?: WorkflowState, lease?: Lease, task?: TaskRecord):
   if (state === "HALTED" || task?.halted || state === "WAITING_INPUT") return 3; // Step 4: Live Preview & Review
   if (state === "CODING") return 2; // Step 3: Agent Implementation
   if (state === "BOOTING" || state === "STRIKING") return 1; // Step 2: Environment Ready
-  if (state === "PENDING") return 0; // Step 1: Workspace Strike
+  if (state === "PENDING" || state === "PROVISIONING" || state === "QUEUED" || lease?.status === "queued") return 0; // Step 1: Workspace Strike
   
   if (lease?.status === "ready") {
     if (lease.evidence?.test_exit === 0) return 5;
     if (lease.evidence?.test_cmd || lease.evidence?.test_exit !== undefined) return 4;
-    return 3;
+    return 2; // Agent Implementation in progress
   }
   return 0;
 }
@@ -185,6 +185,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
 
   const isAwaitingReview = 
     (currentIdx === 3 || task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
+    task?.workflow_state !== "CODING" &&
     activeInspectStage.key === "PREVIEW";
 
   const testExit = task?.evidence?.test_exit ?? lease?.evidence?.test_exit;
@@ -199,7 +200,10 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
     task?.evidence?.guardrail_passed === false ||
     lease?.evidence?.guardrail_passed === false;
 
-  const dynamicDescription = getStageDescription(activeInspectStage.key, stageStatus);
+  const isQueued = lease?.status === "queued" || task?.workflow_state === "QUEUED";
+  const dynamicDescription = isQueued && activeInspectStage.key === "STRIKE"
+    ? "Application active workspace capacity reached (max concurrent limit). Ticket is queued in FIFO order and will strike automatically once an active workspace completes."
+    : getStageDescription(activeInspectStage.key, stageStatus);
 
   const ticketKey = lease?.ticket || task?.ticket || "";
   const jiraCommentUrl = jiraBaseUrl && ticketKey ? `${jiraBaseUrl.replace(/\/$/, "")}/browse/${ticketKey}#addcomment` : null;

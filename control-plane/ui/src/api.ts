@@ -1,4 +1,4 @@
-import { OpsState, OnboardingRequest } from "./types";
+import { OpsState, OnboardingRequest, AuthUser } from "./types";
 
 const BASE_URL = "";
 
@@ -73,15 +73,38 @@ export async function extendLease(leaseId: string, ttl_s: number = 1800): Promis
   return res.json();
 }
 
-export async function releaseLease(leaseId: string): Promise<any> {
-  const res = await fetch(`${BASE_URL}/ops/releases/${leaseId}`, {
-    method: "POST",
+export async function releaseLease(leaseId: string, ticket?: string): Promise<any> {
+  // If a ticket is provided, also release the console task
+  if (ticket) {
+    try {
+      await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+    } catch (e) {
+      console.warn("console/tasks release error:", e);
+    }
+  }
+
+  // Primary release on the operator endpoint
+  let res = await fetch(`${BASE_URL}/ops/leases/${encodeURIComponent(leaseId)}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
   });
+
+  if (!res.ok) {
+    // Fallback to /leases/{leaseId} directly
+    res = await fetch(`${BASE_URL}/leases/${encodeURIComponent(leaseId)}`, {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `Failed to release workspace: ${res.statusText}`);
   }
-  return res.json();
+  return res.json().catch(() => ({ status: "released" }));
 }
 
 export async function createTeam(
@@ -171,3 +194,30 @@ export async function triggerTrialRun(
   }
   return res.json();
 }
+
+export async function setCapacity(maxAppLeases: number, role: string = "superadmin"): Promise<any> {
+  const res = await fetch(`${BASE_URL}/ops/capacity`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ max_app_leases: maxAppLeases, role }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to update capacity");
+  }
+  return res.json();
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  const res = await fetch(`${BASE_URL}/ops/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Invalid credentials");
+  }
+  return res.json();
+}
+

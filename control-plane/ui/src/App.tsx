@@ -8,19 +8,30 @@ import {
   Activity,
   Server,
   Terminal,
-  Sparkles
+  Sparkles,
+  Clock
 } from "lucide-react";
-import { OpsState, Lease, TaskRecord, OnboardingRequest } from "./types";
-import { fetchOpsState, releaseLease, extendLease, fetchOnboardingRequests } from "./api";
+import { OpsState, Lease, TaskRecord, OnboardingRequest, AuthUser } from "./types";
+import { fetchOpsState, releaseLease, extendLease, fetchOnboardingRequests, setCapacity } from "./api";
 import { Header, Role } from "./components/Header";
 import { WorkspacesTable } from "./components/WorkspacesTable";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { JudgePlayground } from "./components/JudgePlayground";
 import { StrikeModal } from "./components/StrikeModal";
+import { LoginPage } from "./components/LoginPage";
 
 type ActiveTab = "workspaces" | "onboarding" | "judge";
 
 export const App: React.FC = () => {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem("meeseek_auth_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [activeTab, setActiveTab] = useState<ActiveTab>("workspaces");
   const [selectedRole, setSelectedRole] = useState<Role>("team");
   const [state, setState] = useState<OpsState | null>(null);
@@ -31,6 +42,24 @@ export const App: React.FC = () => {
   const [isStrikeModalOpen, setIsStrikeModalOpen] = useState<boolean>(false);
   const [isDestroying, setIsDestroying] = useState<boolean>(false);
   const [isExtending, setIsExtending] = useState<boolean>(false);
+
+  const handleLogin = (user: AuthUser) => {
+    setAuthUser(user);
+    try {
+      localStorage.setItem("meeseek_auth_user", JSON.stringify(user));
+    } catch (e) {
+      console.error("Failed to persist auth user:", e);
+    }
+  };
+
+  const handleSignOut = () => {
+    setAuthUser(null);
+    try {
+      localStorage.removeItem("meeseek_auth_user");
+    } catch (e) {
+      console.error("Failed to clear auth user:", e);
+    }
+  };
 
   // Enforce sleek dark mode
   useEffect(() => {
@@ -69,11 +98,11 @@ export const App: React.FC = () => {
   }, [loadState]);
 
   // Handle Destroy Lease
-  const handleDestroyLease = async (leaseId: string) => {
-    if (!confirm(`Are you sure you want to terminate workspace "${leaseId}"?`)) return;
+  const handleDestroyLease = async (leaseId: string, ticket?: string) => {
+    if (!confirm(`Are you sure you want to terminate workspace "${ticket || leaseId}"?`)) return;
     setIsDestroying(true);
     try {
-      await releaseLease(leaseId);
+      await releaseLease(leaseId, ticket);
       await loadState();
       if (selectedLeaseId === leaseId) {
         setSelectedLeaseId(null);
@@ -98,6 +127,11 @@ export const App: React.FC = () => {
     }
   };
 
+  // If not authenticated, render LoginPage
+  if (!authUser) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-meeseek-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
@@ -110,6 +144,8 @@ export const App: React.FC = () => {
           setSelectedRole(role);
           if (role === "judge") setActiveTab("judge");
         }}
+        authUser={authUser}
+        onSignOut={handleSignOut}
       />
 
       {/* Fluid Subheader Navigation & Action Bar */}
@@ -161,12 +197,52 @@ export const App: React.FC = () => {
             </nav>
 
             {/* Quick Metrics & Strike Action */}
-            <div className="flex items-center space-x-4">
-              <div className="hidden md:flex items-center space-x-3 text-xs text-slate-400 font-mono">
+            <div className="flex items-center space-x-3">
+              <div className="hidden md:flex items-center space-x-2.5 text-xs text-slate-400 font-mono">
                 <span className="flex items-center space-x-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  <span>{state?.kpis?.live ?? 0} Live Workspaces</span>
+                  <span>{state?.kpis?.live ?? 0} Live</span>
                 </span>
+
+                {!!state?.kpis?.queued && state.kpis.queued > 0 && (
+                  <span className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 animate-pulse">
+                    <Clock className="w-3 h-3 text-amber-400" />
+                    <span>{state.kpis.queued} Queued</span>
+                  </span>
+                )}
+
+                <div className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-slate-300 text-xs font-mono">
+                  <span className="text-slate-400">Limit/App:</span>
+                  {authUser.role === "superadmin" ? (
+                    <select
+                      value={state?.kpis?.max_app_leases ?? 3}
+                      onChange={async (e) => {
+                        const newCap = parseInt(e.target.value, 10);
+                        try {
+                          await setCapacity(newCap, authUser.role);
+                          await loadState();
+                        } catch (err: any) {
+                          alert(`Failed to update capacity: ${err.message}`);
+                        }
+                      }}
+                      title="Change max concurrent strikes per application at runtime (Superadmin only)"
+                      className="bg-transparent text-cyan-400 font-bold focus:outline-none cursor-pointer"
+                    >
+                      <option value={1} className="bg-slate-900 text-slate-200">1</option>
+                      <option value={2} className="bg-slate-900 text-slate-200">2</option>
+                      <option value={3} className="bg-slate-900 text-slate-200">3</option>
+                      <option value={4} className="bg-slate-900 text-slate-200">4</option>
+                      <option value={5} className="bg-slate-900 text-slate-200">5</option>
+                    </select>
+                  ) : (
+                    <span 
+                      className="text-cyan-400 font-bold px-1.5 cursor-not-allowed" 
+                      title="Cluster capacity limit can only be modified by Superadmin"
+                    >
+                      {state?.kpis?.max_app_leases ?? 3}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <button
@@ -208,6 +284,7 @@ export const App: React.FC = () => {
             onRefresh={loadState}
             onboardingRequests={onboardingRequests}
             isAdmin={selectedRole === "admin"}
+            userRole={authUser.role}
           />
         )}
 

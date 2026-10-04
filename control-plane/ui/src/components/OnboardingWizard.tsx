@@ -12,7 +12,7 @@ import {
   Terminal,
   FileCode
 } from "lucide-react";
-import { OnboardingRequest, Team } from "../types";
+import { OnboardingRequest, Team, UserRole } from "../types";
 import { createOnboardingRequest, triggerTrialRun } from "../api";
 
 interface OnboardingWizardProps {
@@ -20,6 +20,7 @@ interface OnboardingWizardProps {
   onRefresh: () => void;
   onboardingRequests: OnboardingRequest[];
   isAdmin: boolean;
+  userRole?: UserRole;
 }
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
@@ -27,6 +28,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   onRefresh,
   onboardingRequests,
   isAdmin,
+  userRole,
 }) => {
   const [step, setStep] = useState<number>(1);
   const [appName, setAppName] = useState("");
@@ -406,10 +408,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={() => runTrial(req.id)}
-                          disabled={isTrialing}
-                          className="px-3 py-1 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 text-[11px] font-medium"
+                          disabled={isTrialing || (userRole !== undefined && userRole !== "superadmin")}
+                          title={
+                            userRole !== undefined && userRole !== "superadmin"
+                              ? "Superadmin role required to certify onboarding builds"
+                              : "Run automated trial build"
+                          }
+                          className={`px-3 py-1 rounded text-[11px] font-medium transition-all ${
+                            userRole === "superadmin" || userRole === undefined
+                              ? "bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30"
+                              : "bg-slate-800/40 text-slate-500 border border-slate-700/40 cursor-not-allowed"
+                          }`}
                         >
-                          {isTrialing ? "Running Trial..." : "Run Trial Check"}
+                          {isTrialing
+                            ? "Running Trial..."
+                            : userRole !== undefined && userRole !== "superadmin"
+                            ? "Superadmin Only"
+                            : "Run Trial Check"}
                         </button>
                       </td>
                     </tr>

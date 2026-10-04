@@ -29,8 +29,12 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
     setTriggeringTicket(ticket);
     setStatusMessage(null);
     try {
-      await strikeEnvironment(ticket, "full-stack-application", 3600);
-      setStatusMessage(`🚀 Struck isolated Copy-on-Write workspace for ${ticket}! Switch to the Workspaces tab to watch the real-time DAG stepper.`);
+      const res = await strikeEnvironment(ticket, "full-stack-application", 3600);
+      if (res?.status === "queued") {
+        setStatusMessage(`⏳ Max capacity reached for this app! Workspace for ${ticket} is QUEUED and will boot automatically when an active workspace is released.`);
+      } else {
+        setStatusMessage(`🚀 Struck isolated Copy-on-Write workspace for ${ticket}! Switch to the Workspaces tab to watch the real-time DAG stepper.`);
+      }
       onRefresh();
     } catch (err: any) {
       setStatusMessage(`Error: ${err.message}`);

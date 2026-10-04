@@ -14,7 +14,17 @@ export type WorkflowState =
   | "GUARDRAIL_BLOCKED"
   | "CIRCUIT_BREAKER_HALTED"
   | "FAILED"
-  | "RELEASED";
+  | "RELEASED"
+  | "PROVISIONING"
+  | "QUEUED";
+
+export type UserRole = "admin" | "superadmin";
+
+export interface AuthUser {
+  username: string;
+  role: UserRole;
+  token?: string;
+}
 
 export interface Evidence {
   test_cmd?: string;
@@ -81,6 +91,8 @@ export interface KPIs {
   environments_ready: number;
   environments_total: number;
   max_leases: number;
+  max_app_leases?: number;
+  queued?: number;
 }
 
 export interface OpsState {

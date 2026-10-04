@@ -349,10 +349,20 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: failed to start — {e}")
             return "error"
-        self._repo_blocked.discard(key)  # started fine after an earlier nag (edited + re-triggered)
+        if rec.status == "queued":
+            max_limit = getattr(self.manager.cfg, "max_app_leases", 3)
+            msg = (
+                f"⏳ **Meeseek on Standby (Queued)**\n"
+                f"*\"I'm Mr. Meeseeks, look at me! Application capacity reached ({max_limit} active workspaces). "
+                f"Ticket **{key}** is queued and will boot automatically once an active workspace is released.\"*\n\n"
+                f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
+                f"• **Status**: Queued in FIFO workspace line"
+            )
+            self._say(key, msg)
+            return "queued"
+
         links = [(label, url) for label, url in
                  (("Preview", rec.preview_url),) if url]
-        tunnel_hint = self.manager._tunnel_cmd(rec) or (f"preview port {rec.preview_port}" if rec.preview_port else "no preview port")
         mode_hint = "Plan-only mode (`/plan` mandate active: formulating plan without code edits)" if plan_only else "In-sandbox coding underway..."
         msg = (
             f"🚀 **Meeseek on the job!**\n"
@@ -360,8 +370,7 @@ class JiraBridge:
             f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
             f"• **Live Preview**: [{rec.preview_url}]({rec.preview_url})\n"
             f"• **Guardrails Active**: `CLAUDE.md` repository conventions pre-grounded\n"
-            f"• **Status**: {mode_hint}\n\n"
-            f"*(Tunnel: `{tunnel_hint}`)*"
+            f"• **Status**: {mode_hint}"
         )
         self._say(key, msg, links=links or None)
         return "started"
@@ -527,7 +536,7 @@ class JiraBridge:
                            "to start a new one.")
         try:
             self.jira.set_labels(
-                key, remove=[self.cfg.jira_reset_label, self.cfg.jira_halt_label])
+                key, remove=[self.cfg.jira_reset_label, self.cfg.jira_halt_label, self.cfg.jira_trigger_label])
         except Exception:
             log.exception("jira set_labels (reset cleanup) failed for %s", key)
         return "reset"
