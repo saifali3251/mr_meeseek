@@ -141,8 +141,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
               const isPRReady =
                 lease.pr_url || task?.evidence?.pr_url || task?.workflow_state === "CERTIFIED_PR";
               const isAwaitingReview =
-                (task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
-                task?.workflow_state !== "CODING";
+                Boolean(task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT");
               const isPreviewReady = lease.status === "ready" && !!lease.preview_url;
 
               return (

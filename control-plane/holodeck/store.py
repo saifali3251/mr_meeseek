@@ -37,6 +37,8 @@ def _row_to_lease(r) -> Lease:
         status=LeaseStatus(r["status"]), handle=handle, preview_port=r["preview_port"],
         ticket_test_cmd=r["ticket_test_cmd"], evidence=evidence, error=r["error"],
         token=r["token"], created_at=r["created_at"], expires_at=r["expires_at"],
+        target_repo=handle.target_repo if handle else None,
+        base_overrides=handle.base_overrides if handle else None,
     )
 
 

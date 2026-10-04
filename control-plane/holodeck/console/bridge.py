@@ -597,9 +597,9 @@ class JiraBridge:
             log.exception("jira set_labels (halt) failed for %s", rec.ticket)
             return  # retry next tick
         rec.halted = True
+        rec.workflow_state = "WAITING_INPUT"
         msg = rec.stable_agent_message or ""
         if rec.plan_only or "Blocker." in msg or "What I need from you" in msg:
-            rec.workflow_state = "WAITING_INPUT"
             self._say(
                 rec.ticket,
                 f"⏸️ **Meeseek Implementation Plan Ready for Review**\n\n"

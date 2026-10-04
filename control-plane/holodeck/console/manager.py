@@ -174,12 +174,13 @@ class ConsoleManager:
                     rec.session_url = st.session_url
                 rec.session_state = st.state
                 if st.latest_message:
-                    # A still-running session (e.g. waiting on a dispatched sub-agent)
-                    # never goes "idle" until the whole turn ends, so relay-readiness
-                    # comes from the message having stopped changing across polls,
-                    # not from session_state — unchanged since last refresh() means
-                    # it's sat there through at least one full poll interval.
-                    if st.latest_message == rec.agent_message:
+                    # Fast-path: if the message stopped changing across polls, or if
+                    # the agent explicitly handed off ("Your action:"), or if the session
+                    # went idle, promote immediately so Jira updates and UI don't lag.
+                    has_handoff = any(m in st.latest_message for m in (
+                        "Your action:", "What I need from you", "Blocker.", "/meeseek finalize", "/holodeck finalize"
+                    ))
+                    if st.latest_message == rec.agent_message or has_handoff or st.state == "idle":
                         rec.stable_agent_message = st.latest_message
                     rec.agent_message = st.latest_message
                 if st.workspace:
@@ -201,8 +202,10 @@ class ConsoleManager:
                     rec.workflow_state = "WAITING_INPUT"
                     if rec.status == "ready":
                         rec.status = "waiting-input"
+                elif rec.halted or (rec.stable_agent_message and any(m in rec.stable_agent_message for m in ("Your action:", "What I need from you", "Blocker."))):
+                    rec.workflow_state = "WAITING_INPUT"
                 else:
-                    if rec.workflow_state in ("PROVISIONING", "WAITING_INPUT", "QUEUED") and rec.status == "ready":
+                    if rec.workflow_state in ("PROVISIONING", "QUEUED") and rec.status == "ready":
                         rec.workflow_state = "CODING"
                 if not rec.waiting:
                     # cleared: re-arm the notice + drop the stale elicitation

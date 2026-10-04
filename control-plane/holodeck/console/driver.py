@@ -10,12 +10,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from holodeck.console.leaseclient import LeaseClient
 from holodeck.console.omnigent import OmnigentClient, SessionStatus
 from holodeck.models import holo_id
+
+log = logging.getLogger("holodeck.console.driver")
 
 
 class DriverError(RuntimeError):
@@ -100,7 +103,8 @@ class OmnigentDriver:
             return SessionStatus("unknown", False)
         try:
             return self.omni.status(session_id)
-        except Exception:
+        except Exception as e:
+            log.warning("Omnigent session_status failed for %s: %s", session_id, e)
             return SessionStatus("unknown", False)
 
     def session_waiting(self, session_id: Optional[str]) -> bool:
