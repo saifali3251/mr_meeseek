@@ -43,8 +43,7 @@ def valid_apps(holo_dir: Path) -> set[str]:
 
 def parse_app_aliases(raw: str) -> dict[str, str]:
     """`real=display,real2=display2` -> {real: display}. Used to show a friendlier
-    operator-facing name than the manifest basename (e.g. the composite bundle
-    `compliance-ui` displayed as `compliance`). Blank/garbage pairs are skipped."""
+    operator-facing name than the manifest basename. Blank/garbage pairs are skipped."""
     out: dict[str, str] = {}
     for pair in raw.split(","):
         pair = pair.strip()
@@ -77,11 +76,34 @@ def load_env_file(path) -> list[str]:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        value = value.strip()
+        # Handle quoted values or strip inline comments for unquoted values
+        if value.startswith('"'):
+            end = value.find('"', 1)
+            value = value[1:end] if end != -1 else value.strip('"')
+        elif value.startswith("'"):
+            end = value.find("'", 1)
+            value = value[1:end] if end != -1 else value.strip("'")
+        else:
+            value = value.partition("#")[0].strip()
         if key and key not in os.environ:
             os.environ[key] = value
             loaded.append(key)
     return loaded
+
+
+def _int_env(key: str, default: int, fallback_key: Optional[str] = None) -> int:
+    """Safely parse an integer environment variable, stripping quotes or trailing inline comments."""
+    raw = os.environ.get(key)
+    if not raw and fallback_key:
+        raw = os.environ.get(fallback_key)
+    if not raw:
+        return default
+    clean = raw.partition("#")[0].strip().strip('"').strip("'")
+    try:
+        return int(clean)
+    except ValueError:
+        return default
 
 
 @dataclass
@@ -93,7 +115,7 @@ class Config:
 
     # bind loopback-only by default: the process can reach `sudo rm -rf` (issue #2).
     host: str = field(default_factory=lambda: os.environ.get("HOLODECK_HOST", "127.0.0.1"))
-    port: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_PORT", "8099")))
+    port: int = field(default_factory=lambda: _int_env("HOLODECK_PORT", 8099))
 
     # SQLite file backing both the lease store and the console tables — one DB for
     # the one service. ":memory:" is ephemeral (tests / throwaway runs).
@@ -122,17 +144,14 @@ class Config:
     # this QUEUES (status=queued) rather than hard-rejecting with a 503 — it
     # starts striking once an existing lease is released/expires/fails and
     # frees a slot. See LeaseService._advance_queue.
-    max_leases: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_MAX_LEASES", "50")))
+    max_leases: int = field(default_factory=lambda: _int_env("HOLODECK_MAX_LEASES", 50))
 
     # Per-application active workspace capacity limit (default: 3).
     # Bounds how many active (pending/ready) workspaces any single application can have at a time.
     # Subsequent strikes for this application wait in a FIFO queue (status=queued) until an active
     # workspace is released or completed.
     max_app_leases: int = field(
-        default_factory=lambda: int(
-            os.environ.get("MEESEEK_MAX_APP_LEASES")
-            or os.environ.get("HOLODECK_MAX_APP_LEASES", "3")
-        ))
+        default_factory=lambda: _int_env("MEESEEK_MAX_APP_LEASES", 3, fallback_key="HOLODECK_MAX_APP_LEASES"))
 
     # Run the strike (docker compose up, ~minutes) in a BACKGROUND thread so
     # POST /leases returns a `pending` lease immediately and never holds the
@@ -143,89 +162,62 @@ class Config:
         default_factory=lambda: os.environ.get("HOLODECK_PROVISION_ASYNC", "1") not in ("0", "false", "no"))
 
     # Bound how many strikes (docker compose up — CPU/disk-heavy, minutes long)
-    # run AT ONCE, separate from max_leases (the total-workspace ceiling below).
-    # A ticket arriving once this is full still gets an instant lease_id back
-    # (status=queued, not a 503) — its strike starts as soon as a slot frees.
-    # Needs real tuning against actual host resources, not a guess: this bounds
-    # concurrent `docker compose up`s of the FULL compliance-ui composite (12
-    # containers), which is heavier than the single-repo `compliance` app this
-    # default was never calibrated against.
+    # Bound how many strikes (docker compose up) run at once, separate from max_leases.
+    # Strikes arriving once this is full queue until a slot frees.
     max_concurrent_strikes: int = field(
-        default_factory=lambda: int(os.environ.get("HOLODECK_MAX_CONCURRENT_STRIKES", "3")))
+        default_factory=lambda: _int_env("HOLODECK_MAX_CONCURRENT_STRIKES", 3))
 
     # --- warm workspace pool (holodeck/pool.py) ---
-    # How many pre-booted, seeded stacks to keep per app so a strike is a claim
-    # (~sub-second) instead of a cold ~2min boot. 0 = OFF, and off is the default
-    # on purpose: with pool_size=0 the acquire path is byte-identical to the
-    # pre-pool behaviour, so this flag is also the rollback.
-    #
-    # Each slot is a full running stack (~0.5GB for `compliance`: webserver + db),
-    # so this is bounded by host RAM, not by taste. Do NOT pool compliance-ui —
-    # 13 services per slot is 4-6GB.
-    pool_size: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_POOL_SIZE", "0")))
+    # Pre-booted seeded stacks per app for instant sub-second lease claims.
+    # 0 = OFF (default).
+    pool_size: int = field(default_factory=lambda: _int_env("HOLODECK_POOL_SIZE", 0))
 
-    # Which app(s) to keep warm, comma-separated. Empty -> default_app. This is
-    # separate from default_app on purpose: the app the console triggers by
-    # default and the app worth spending idle RAM on are not necessarily the
-    # same, and pinning the pool to default_app silently warms the wrong stack.
+    # Which app(s) to keep warm, comma-separated. Empty -> default_app.
     pool_apps_raw: str = field(default_factory=lambda: os.environ.get("HOLODECK_POOL_APPS", ""))
 
-    # Reconcile cadence. The loop boots at most ONE slot per tick, so this also
-    # paces the refill: an empty 3-slot pool fills over 3 ticks + 3 boots rather
-    # than firing 3 concurrent `compose up`s and starving real strikes.
+    # Reconcile cadence for pool refills.
     pool_interval_s: int = field(
-        default_factory=lambda: int(os.environ.get("HOLODECK_POOL_INTERVAL_S", "15")))
+        default_factory=lambda: _int_env("HOLODECK_POOL_INTERVAL_S", 15))
 
-    # port pool for preview allocation (issue #3: the API owns port selection).
-    port_pool_start: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_PORT_START", "18000")))
-    port_pool_end: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_PORT_END", "18999")))
+    # port pool for preview allocation.
+    port_pool_start: int = field(default_factory=lambda: _int_env("HOLODECK_PORT_START", 18000))
+    port_pool_end: int = field(default_factory=lambda: _int_env("HOLODECK_PORT_END", 18999))
 
-    # Probe the OS before handing out a port. The in-use set is only bookkeeping: it is
-    # empty after a restart and blind to ports held by anything else on the host (the
-    # POC stack, another dev's workspaces, orphans from a previous run). Disabled in
-    # unit tests so they don't depend on which ports happen to be free on a laptop.
+    # Probe the OS before handing out a port.
     port_probe: bool = field(
         default_factory=lambda: os.environ.get("HOLODECK_PORT_PROBE", "1") not in ("0", "false", "no")
     )
 
-    # lease lifetime + reaper cadence (Phase 4).
-    default_ttl_s: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_TTL_S", "3600")))
-    reaper_interval_s: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_REAPER_S", "30")))
+    # lease lifetime + reaper cadence.
+    default_ttl_s: int = field(default_factory=lambda: _int_env("HOLODECK_TTL_S", 3600))
+    reaper_interval_s: int = field(default_factory=lambda: _int_env("HOLODECK_REAPER_S", 30))
 
-    # finalize test wall-clock cap (issue #6).
-    finalize_timeout_s: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_FINALIZE_TIMEOUT_S", "600")))
+    # finalize test wall-clock cap.
+    finalize_timeout_s: int = field(default_factory=lambda: _int_env("HOLODECK_FINALIZE_TIMEOUT_S", 600))
 
-    # --- finalize -> PR (gap E2) ---
-    # OFF by default: opening a real draft PR is an outward-facing side effect, so
-    # it must be explicitly enabled per box. finalize opens/updates the PR only
-    # when enabled AND there's a real change (a diff vs the golden). Needs `gh`
-    # authed + push access to the app repo on the host.
+    # --- finalize -> PR ---
     pr_enabled: bool = field(
         default_factory=lambda: os.environ.get("HOLODECK_PR", "0") not in ("0", "false", "no"))
     pr_base: str = field(default_factory=lambda: os.environ.get("HOLODECK_PR_BASE", "master"))
     pr_draft: bool = field(
         default_factory=lambda: os.environ.get("HOLODECK_PR_DRAFT", "1") not in ("0", "false", "no"))
-    # label added to the PR for human review of the preview env (the demo narrative).
-    # Attached best-effort — a missing/failed label never fails PR creation. Empty = none.
     pr_label: str = field(default_factory=lambda: os.environ.get("HOLODECK_PR_LABEL", "holodeck_preview"))
 
-    # per-exec wall-clock cap (B3). A hung command is killed and returns exit 124.
-    exec_timeout_s: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_EXEC_TIMEOUT_S", "120")))
+    # per-exec wall-clock cap. A hung command is killed and returns exit 124.
+    exec_timeout_s: int = field(default_factory=lambda: _int_env("HOLODECK_EXEC_TIMEOUT_S", 120))
 
-    # startup reconcile policy for orphaned workspaces (issue #4, my variant):
+    # startup reconcile policy for orphaned workspaces:
     #   "log"  -> log loudly + refuse to reuse their ports (default, safe)
     #   "reap" -> destroy them for a clean slate
     reconcile: str = field(default_factory=lambda: os.environ.get("HOLODECK_RECONCILE", "log"))
 
-    # --- console (trigger + board), co-located but seam-preserved ---
-    # One service for the MVP, but the console talks to the lease API over HTTP
-    # (loopback) even in-process, so splitting it out later is a URL change.
+    # --- console (trigger + board) ---
     console_enabled: bool = field(
         default_factory=lambda: os.environ.get("HOLODECK_CONSOLE", "1") not in ("0", "false", "no"))
     console_driver: str = field(default_factory=lambda: os.environ.get("HOLODECK_CONSOLE_DRIVER", "direct"))
-    console_poll_interval_s: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_CONSOLE_POLL_S", "5")))
+    console_poll_interval_s: int = field(default_factory=lambda: _int_env("HOLODECK_CONSOLE_POLL_S", 5))
     # app a trigger uses when none is given (a Jira ticket doesn't name an app).
-    default_app: str = field(default_factory=lambda: os.environ.get("HOLODECK_DEFAULT_APP", "compliance"))
+    default_app: str = field(default_factory=lambda: os.environ.get("HOLODECK_DEFAULT_APP", "full-stack-application"))
     # lease API base URL the console calls. Empty -> loopback to this same service.
     holodeck_url: str = field(default_factory=lambda: os.environ.get("HOLODECK_URL", ""))
     # ssh target the author tunnels through to reach a workspace on localhost
@@ -352,9 +344,7 @@ class Config:
         "HOLODECK_ONBOARDING_WORKDIR", str(Path(tempfile.gettempdir()) / "holodeck-onboarding")))
 
     # Restrict which on-disk manifests are strikeable environments (comma-separated).
-    # The manifests repo may carry dependency manifests (e.g. the per-repo compliance
-    # / main / main-ui goldens that the compliance-ui composite bundles) that should
-    # NOT show as separate environments. Empty = expose every manifest (default).
+    # Empty = expose every manifest (default).
     apps_allow: set[str] = field(default_factory=lambda: {
         a.strip() for a in os.environ.get("HOLODECK_APPS", "").split(",") if a.strip()})
     # Operator-facing display names: `real=display,...`. Cosmetic only — the real

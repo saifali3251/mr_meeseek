@@ -39,20 +39,20 @@ def test_golden_sync_state_machine_unit(cfg: Config):
     mgr = GoldenSyncManager(cfg, pool=mock_pool)
     mgr._execute_build_script = MagicMock(return_value=True)
 
-    app = "compliance"
+    app = "full-stack-application"
 
     # Push to non-main branch is ignored
-    res = mgr.notify_push(app, repo="compliance-repo", branch="feature/new-login")
+    res = mgr.notify_push(app, repo="app-repo", branch="feature/new-login")
     assert res["status"] == "ignored"
     assert mgr.state(app)["state"] == "IDLE"
 
     # Push to main enters DEBOUNCING
-    res = mgr.notify_push(app, repo="compliance-repo", branch="main", commit_sha="commit-1")
+    res = mgr.notify_push(app, repo="app-repo", branch="main", commit_sha="commit-1")
     assert res["status"] == "debouncing"
     assert mgr.state(app)["state"] == "DEBOUNCING"
 
     # Rapid second push resets debounce timer
-    res = mgr.notify_push(app, repo="compliance-repo", branch="main", commit_sha="commit-2")
+    res = mgr.notify_push(app, repo="app-repo", branch="main", commit_sha="commit-2")
     assert res["status"] == "debouncing_reset"
     assert mgr.state(app)["state"] == "DEBOUNCING"
 
@@ -62,7 +62,7 @@ def test_golden_sync_state_machine_unit(cfg: Config):
     assert mgr.state(app)["state"] == "BUILDING"
 
     # Push landing while BUILDING marks it dirty
-    res = mgr.notify_push(app, repo="compliance-repo", branch="main", commit_sha="commit-3")
+    res = mgr.notify_push(app, repo="app-repo", branch="main", commit_sha="commit-3")
     assert res["status"] == "queued_dirty"
     assert mgr.state(app)["dirty"] is True
 
@@ -80,7 +80,7 @@ def test_webhook_hmac_signature_verification(cfg: Config, service: LeaseService)
     app = create_app(cfg, service)
     tc = TestClient(app)
 
-    payload = json.dumps({"ref": "refs/heads/main", "repository": {"name": "compliance"}}).encode("utf-8")
+    payload = json.dumps({"ref": "refs/heads/main", "repository": {"name": "full-stack-application"}}).encode("utf-8")
 
     # Missing header -> 401
     resp = tc.post("/webhooks/github", headers={"X-GitHub-Event": "push"}, content=payload)
@@ -135,16 +135,16 @@ def test_webhook_composite_repo_mapping(composite_manifests: Path, cfg: Config, 
 
 def test_ops_golden_state_and_rebuild_endpoints(client: TestClient):
     """GET /ops/golden/state and POST /ops/golden/rebuild operate as expected."""
-    resp = client.get("/ops/golden/state?app=compliance")
+    resp = client.get("/ops/golden/state?app=full-stack-application")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["app"] == "compliance"
+    assert data["app"] == "full-stack-application"
     assert "state" in data
 
-    resp = client.post("/ops/golden/rebuild?app=compliance")
+    resp = client.post("/ops/golden/rebuild?app=full-stack-application")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["app"] == "compliance"
+    assert data["app"] == "full-stack-application"
     assert data["status"] in ("started", "already_building")
 
 
@@ -160,7 +160,7 @@ def test_ops_state_includes_golden_sync_info(client: TestClient):
 def test_pool_drain_reaps_idle_slots(cfg: Config):
     """pool.drain reaps idle slots for the specified app."""
     cfg.pool_size = 2
-    cfg.pool_apps_raw = "compliance"
+    cfg.pool_apps_raw = "full-stack-application"
     destroyed = []
     pool = PoolManager(
         cfg=cfg,
@@ -170,15 +170,15 @@ def test_pool_drain_reaps_idle_slots(cfg: Config):
         ws_root=lambda app: None,
     )
     # Add fake ready slots
-    slot1 = PoolSlot(slot_id="pool-01", app="compliance", port=18001, ws_dir="/tmp/p1", compose_project="p1")
+    slot1 = PoolSlot(slot_id="pool-01", app="full-stack-application", port=18001, ws_dir="/tmp/p1", compose_project="p1")
     slot2 = PoolSlot(slot_id="pool-02", app="other-app", port=18002, ws_dir="/tmp/p2", compose_project="p2")
-    pool._ready["compliance"] = [slot1]
+    pool._ready["full-stack-application"] = [slot1]
     pool._ready["other-app"] = [slot2]
 
-    # Drain compliance
-    pool.drain("compliance")
+    # Drain full-stack-application
+    pool.drain("full-stack-application")
 
     # Verify slot1 was destroyed and removed, but other-app slot remains
     assert "pool-01" in destroyed
-    assert "compliance" not in pool._ready
+    assert "full-stack-application" not in pool._ready
     assert len(pool._ready["other-app"]) == 1

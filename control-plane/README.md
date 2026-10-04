@@ -78,8 +78,8 @@ written once. Only the ~5 provider methods differ.
 
 ## Four confirmed decisions (the *why*, for whoever inherits this)
 
-1. **Stack + location** — `control-plane/` · FastAPI · Python 3.12 · Poetry. Matches
-   compliance-backend so `jr`/CI patterns transfer, and fills the README's planned slot.
+1. **Stack + location** — `control-plane/` · FastAPI · Python 3.12 · Poetry.
+   Fills the control plane's planned service slot.
 2. **Finalize test source — structural, not policy.** `finalize` has **no command field**.
    The test comes from `HOLO_TEST_CMD` (manifest), optionally a ticket-derived value
    recorded on the lease at *acquire* time. An agent physically cannot supply a command:

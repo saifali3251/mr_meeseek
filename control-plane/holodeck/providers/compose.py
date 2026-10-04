@@ -42,7 +42,7 @@ def _base_env(app: str, target_repo: Optional[str] = None) -> dict[str, str]:
     """Curated env for a script call. HOLO_ROOT/HOLO_SRC/HOLO_GOLDEN come from
     the box's holodeck.local.env (sourced by lib.sh); we only inject HOLO_APP
     (and, when a lease specifies one, HOLO_TARGET_REPO — read by strike.sh's
-    branch-cutting step; see manifests/control-tower.sh's HOLO_GIT_SUBDIR note)."""
+    branch-cutting step)."""
     env = {**os.environ, "HOLO_APP": app}
     if target_repo:
         env["HOLO_TARGET_REPO"] = target_repo
@@ -54,15 +54,9 @@ class ComposeProvider:
 
     lib.sh resolves per-app config (local.env -> defaults -> manifests/<app>.sh) inside
     the shell that sources it; those values are NOT in this process's environment.
-    Guessing them silently broke finalize: HOLO_COMPOSE_FILE defaulted to
-    docker-compose.yaml while compliance uses compose.yaml, WS_SERVICES defaulted to ""
-    so the services-booted stamp was always empty, and HOLO_WORKSPACES defaulted to ""
-    which produced a RELATIVE cwd and a FileNotFoundError.
-
-    So we ask lib.sh via scripts/holo-env.sh and cache the answer per app. Adding a
-    manifest variable means listing it in holo-env.sh once — no per-consumer defaults.
-    The same discipline carries to EksProvider: the manifest stays the source of truth
-    for app facts, and each provider translates them to its own substrate.
+    We ask lib.sh via scripts/holo-env.sh and cache the answer per app. Adding a
+    manifest variable means listing it in holo-env.sh once.
+    The manifest stays the source of truth for app facts.
     """
 
     name = "compose"
@@ -256,11 +250,8 @@ class ComposeProvider:
     def _pool_verify(self, slot: PoolSlot) -> bool:
         """Is this slot actually serving the CURRENT golden? ~50ms.
 
-        Deliberately NOT a seed-count query: that needs a container exec (~1s of
-        compose overhead) on every claim and every reconcile tick. The golden was
-        seed-proven at build time and the slot is a clone of it, and for
-        `compliance` HOLO_READINESS_PATH (/readiness) runs SELECT 1 — so a 200
-        already proves the app is up AND its database is reachable."""
+        The golden was seed-proven at build time and the slot is a clone of it;
+        hitting HOLO_READINESS_PATH proves the app container is up and responsive."""
         try:
             m = self._manifest(slot.app)
         except ProviderError:
@@ -292,13 +283,9 @@ class ComposeProvider:
         post-checkout hook would otherwise run on every claim and is exactly the
         kind of thing that turns a 50ms operation into seconds.
 
-        The branch is cut in _git_root(), NOT in ws_dir. For a composite like
-        compliance-ui, ws_dir is a plain directory holding five separate clones
-        and is not a git repo at all — branching there fails, and treating that
-        as fatal would destroy a good slot on every claim, so the pool would
-        thrash (boot 2min, claim, destroy, repeat) instead of ever serving.
-        target_repo (already validated by the caller) picks the checkout when the
-        lease specifies one; HOLO_GIT_SUBDIR is the fallback otherwise.
+        The branch is cut in _git_root(), NOT in ws_dir. For composite multi-repo apps,
+        ws_dir is a plain directory holding multiple clones; target_repo picks the
+        designated checkout when specified, or falls back to HOLO_GIT_SUBDIR.
 
         Fetches first, same as strike.sh's cold path, so a warm slot doesn't hand
         out a branch frozen at however-stale the pool slot's own boot was —
@@ -493,8 +480,7 @@ class ComposeProvider:
         seed_rows = self._seed_count(handle)
 
         # readiness — hit the preview port if we have one. Scheme is manifest-driven
-        # (HOLO_READINESS_SCHEME): TLS entrypoints (main nginx:443, compliance-ui
-        # qong:8989) serve a self-signed cert, so https is polled with -k. Mirrors the
+        # (HOLO_READINESS_SCHEME): supports HTTPS self-signed certs with -k. Mirrors the
         # scheme-aware poll in strike.sh so the notary and strike agree.
         readiness, readiness_ok = "", False
         if handle.preview_port is not None:
@@ -910,15 +896,11 @@ class ComposeProvider:
         Substrate checks (scripts, docker) ALWAYS run — they gate every app.
         The per-app checks are scoped by `app`:
 
-          app="compliance"  -> only compliance's manifest + golden
-          app=None          -> every app in the manifests dir (operator view)
+          app="full-stack-application"  -> only that app's manifest + golden
+          app=None                      -> every app in the manifests dir (operator view)
 
-        Scoping matters because this fails CLOSED. `cfg.apps` is every
-        manifests/*.sh on disk, so an unbuilt golden for an app nobody asked
-        for (e.g. a half-finished compliance-ui) used to make /readyz 503 and
-        `HolodeckSandboxLauncher.prepare()` raise — blocking Omnigent sessions
-        for apps whose goldens were fine. An unknown app name is itself a
-        problem rather than a silent full scan.
+        Scoping matters because this fails CLOSED. An unbuilt golden for an app
+        nobody asked for should not block sessions for apps whose goldens are ready.
         """
         problems: list[str] = []
         for script in ("strike.sh", "destroy.sh", "holo-env.sh"):
@@ -1009,12 +991,7 @@ class ComposeProvider:
         return out
 
     def _infer_app(self, ws_dir: Path) -> str:
-        """Which app an orphan belongs to, from the golden stamp the clone carried.
-
-        golden-build.compliance.sh writes `app=<name>` into .holodeck-golden; main's
-        golden omits it. Getting this right matters for reap mode: destroy.sh needs the
-        correct HOLO_APP or it loads the wrong compose file and fails.
-        """
+        """Which app an orphan belongs to, from the golden stamp the clone carried."""
         stamp = ws_dir / ".holodeck-golden"
         try:
             for line in stamp.read_text().splitlines():
@@ -1023,23 +1000,15 @@ class ComposeProvider:
                         return tok[4:]
         except OSError:
             pass
-        return "main"
+        return "full-stack-application"
 
     # ---- helpers -----------------------------------------------------------
     def _git_root(self, app: str, ws_dir: Path, target_repo: Optional[str] = None) -> Path:
-        """The directory golden_head/diff/PR actually operate on for `app`.
+        """The directory git commands (golden_head/diff/PR) operate on for `app`.
 
-        Single-repo apps (main, compliance): ws_dir itself. Composites
-        (compliance-ui, control-tower): ws_dir is a plain directory holding several
-        separate clones, not a git repo — `git rev-parse HEAD` there fails and the
-        diff is silently empty.
-
-        target_repo (a per-LEASE value, already validated against
-        valid_target_repos(app) before it ever reaches here) wins when set — this is
-        what makes a ticket's own repo choice actually take effect end to end. Falls
-        back to the manifest's static HOLO_GIT_SUBDIR otherwise (single-repo apps, or
-        a composite lease acquired without picking one — see manifests/
-        compliance-ui.sh / control-tower.sh).
+        Single-repo apps: ws_dir itself.
+        Composites: ws_dir holds several separate clones; target_repo specifies the
+        intended repository checkout, falling back to HOLO_GIT_SUBDIR.
         """
         subdir = target_repo or self._manifest(app).get("HOLO_GIT_SUBDIR", "")
         return (ws_dir / subdir) if subdir else ws_dir
@@ -1064,22 +1033,18 @@ class ComposeProvider:
 
     def _run(self, argv: list[str], cwd: Path, env: dict[str, str], timeout: int):
         """Run a re-derivation command; return the CompletedProcess, or None on
-        timeout (finalize records timed_out rather than raising — issue #6).
-        Never shell=True."""
+        timeout. Never shell=True."""
         try:
             return subprocess.run(argv, cwd=cwd, env=env, shell=False,
                                   capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             return None
         except (FileNotFoundError, OSError):
-            # the binary (e.g. `gh`) isn't installed on the host — treat like a
-            # timeout (return None) so callers degrade instead of raising.
             return None
 
     def _service_status(self, dc: list[str], cwd: Path, env: dict[str, str],
                         m: dict[str, str]):
-        """Which WS_SERVICES are running vs not (D11). WS_SERVICES comes from the
-        manifest — guessing "" made this stamp silently empty for every lease."""
+        """Which WS_SERVICES are running vs not."""
         want = m.get("WS_SERVICES", "").split()
         r = self._run(dc + ["ps", "--services", "--status", "running"], cwd, env, timeout=20)
         running = set(r.stdout.split()) if r and r.returncode == 0 else set()
@@ -1090,8 +1055,6 @@ class ComposeProvider:
     def _dc(self, handle: WorkspaceHandle) -> list[str]:
         """docker compose base argv matching strike.sh's file set."""
         m = self._manifest(handle.app)
-        # compliance uses compose.yaml, main uses docker-compose.yaml — guessing either
-        # one breaks the other app entirely.
         cf = m["HOLO_COMPOSE_FILE"]
         files = ["-f", cf, "-f", "compose.ws.yaml"]
         ov = m.get("HOLO_PGDATA_OVERRIDE", "")

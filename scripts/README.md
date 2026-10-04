@@ -14,10 +14,9 @@ one real run confirms the two assumptions the whole design rests on:
 | File | Role |
 |------|------|
 | `lib.sh` | Config + logging + the portable CoW clone (APFS `cp -c` / Linux `--reflink`). |
-| `golden-build.sh` | Snapshot a seeded, stack-down `main` into the golden image. |
+| `golden-build.sh` | Snapshot a seeded, stack-down application into the golden image. |
 | `strike.sh` | CoW-clone the golden → isolated warm workspace (branch, ports stripped, stack up). |
 | `destroy.sh` | Stop the workspace stack and delete the clone. |
-| `holo-demo.sh` | One-command demo: strike N → prove warm+seeded+isolated → bundle evidence → destroy. |
 
 ## Quick start
 
@@ -29,26 +28,23 @@ chmod +x *.sh
 ./golden-build.sh
 
 # 2. Strike three isolated workspaces from it — seconds each, no reseed.
-./strike.sh JSQ-118
-./strike.sh JSQ-119
-./strike.sh JSQ-120 --preview 18020        # app on http://127.0.0.1:18020
+./strike.sh FSA-101
+./strike.sh FSA-102
+./strike.sh FSA-103 --preview 18020        # app on http://127.0.0.1:18020
 
 # 3. Run tests inside one (the isolation + warm-DB proof):
-docker compose -p ws-jsq-118 exec webserver jr test -- jsq/tests/<pick_something_fast>
+docker compose -p ws-fsa-101 exec backend pytest
 
 # 4. Tear down.
-./destroy.sh JSQ-118 && ./destroy.sh JSQ-119 && ./destroy.sh JSQ-120
+./destroy.sh FSA-101 && ./destroy.sh FSA-102 && ./destroy.sh FSA-103
 ```
 
 ## Config (env overrides, see `lib.sh`)
 
-- `HOLO_MAIN` — source checkout (default `~/code/main`).
+- `HOLO_SRC` — source checkout.
 - `HOLO_ROOT` — where golden + workspaces live (default `~/holodeck-data`).
-- `WS_SERVICES` — services booted per workspace. Default is the real minimum
-  (`database redis localstack webserver`) — **`localstack` is required**: the
-  webserver hard-blocks on its secret at boot. If `jr test` needs more, add
-  them; set `WS_SERVICES=""` to boot the whole compose file.
-- `DEMO_HOST` — seeded arena host for `/health_check` (default `rockstonecap.dev.junipersquare.com`).
+- `WS_SERVICES` — services booted per workspace. Default is the minimum required.
+- `DEMO_HOST` — seeded host for `/health_check` (default `localhost`).
 
 ## Notes / caveats
 
@@ -77,4 +73,4 @@ docker compose -p ws-jsq-118 exec webserver jr test -- jsq/tests/<pick_something
 
 Phase 1 only. No control plane, no lease API, no STS creds, no reaper, no
 shared ALB — those are Phase 2 (see the architecture doc). This is the
-irreducible core: golden → clone → isolated warm boot → `jr test` → destroy.
+irreducible core: golden → clone → isolated warm boot → test suite → destroy.

@@ -1,8 +1,8 @@
-"""ComposeProvider.finalize readiness is scheme-aware (compliance-ui / TLS entrypoints).
+"""ComposeProvider.finalize readiness is scheme-aware (TLS entrypoints).
 
-The composite UI is fronted by qong on HTTPS with a self-signed cert. finalize must
+The frontend or gateway may be fronted by HTTPS with a self-signed cert. finalize must
 poll it with `curl -fsS -k https://...`, not plain HTTP — otherwise the notary reports a
-false "not ready" for a healthy stack (the same bug the old strike.sh poll had).
+false "not ready" for a healthy stack.
 
 These tests stub _manifest and _run so no Docker/scripts are needed; they assert the
 exact curl argv finalize builds for each scheme.
@@ -26,20 +26,20 @@ def _provider(tmp_path: Path) -> ComposeProvider:
 
 def _handle() -> WorkspaceHandle:
     return WorkspaceHandle(
-        lease_id="cpl-1", app="compliance-ui", ticket="CPL-1", preview_port=8989,
+        lease_id="cpl-1", app="test-tls-app", ticket="CPL-1", preview_port=8989,
         compose_project="ws-cpl-1", ws_dir="/tmp/ws/cpl-1", golden_head=None,
     )
 
 
 def _base_manifest(scheme: str) -> dict:
     return {
-        "HOLO_COMPOSE_FILE": "compose.compliance-ui.yaml",
+        "HOLO_COMPOSE_FILE": "compose.yaml",
         "HOLO_PGDATA_OVERRIDE": "",
-        "HOLO_APP_SERVICE": "qong",
-        "HOLO_PG_SERVICE": "cpl-db", "HOLO_PG_USER": "postgres", "HOLO_PG_DB": "cpl_jsq",
+        "HOLO_APP_SERVICE": "gateway",
+        "HOLO_PG_SERVICE": "db", "HOLO_PG_USER": "postgres", "HOLO_PG_DB": "test_db",
         "HOLO_READINESS_PATH": "/readyz", "HOLO_READINESS_SCHEME": scheme,
         "HOLO_SEED_PROOF_SQL": "SELECT count(*) FROM arena;",
-        "WS_SERVICES": "qong",
+        "WS_SERVICES": "gateway",
     }
 
 

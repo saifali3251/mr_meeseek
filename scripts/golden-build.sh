@@ -58,4 +58,4 @@ holo_cow_clone "$HOLO_MAIN" "$HOLO_GOLDEN"
 
 { git -C "$HOLO_GOLDEN" rev-parse HEAD 2>/dev/null || echo unknown; date; } > "$HOLO_GOLDEN/.holodeck-golden"
 ok "golden ready at $HOLO_GOLDEN  (HEAD $(git -C "$HOLO_GOLDEN" rev-parse --short HEAD 2>/dev/null || echo '?'))"
-log "now strike a workspace:  $SCRIPT_DIR/strike.sh JSQ-118"
+log "now strike a workspace:  $SCRIPT_DIR/strike.sh FSA-101"

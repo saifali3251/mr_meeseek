@@ -16,7 +16,7 @@ HOLO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 #
 #   # holodeck.local.env
 #   HOLO_ROOT=/opt/holo/holodeck-data
-#   HOLO_SRC=/opt/holo/golden-src/compliance-backend
+#   HOLO_SRC=/opt/holo/golden-src/backend
 #   HOLO_BUILD_CMD="docker compose build webserver"
 #
 # Precedence: environment > holodeck.local.env > manifest default.
@@ -41,37 +41,31 @@ fi
 : "${HOLO_MAIN:=$HOME/code/main}"                     # source checkout the golden is built from
 # NOTE: HOLO_GOLDEN is deliberately NOT defaulted here — it is PER-APP and each manifest
 # sets it with `: "${HOLO_GOLDEN:=...}"`. Defaulting it here would pre-set the variable, so
-# the manifest's `:=` became a no-op and `HOLO_APP=compliance` silently resolved to *main's*
-# golden. Caught in testing 2026-08-03. Add per-app vars to manifests, never here.
+# the manifest's `:=` became a no-op and any HOLO_APP silently resolved to the wrong golden.
 # Services booted per workspace. Lean by default so N stacks fit on a laptop.
-# webserver hard-depends on database + redis + localstack (it loads secrets
-# from localstack at boot via a healthcheck gate), so those are the real
-# minimum; celery/nginx/workers are not needed for the API demo.
-# Set WS_SERVICES="" to boot the whole compose file (heavy).
-: "${WS_SERVICES:=database redis localstack webserver}"
+: "${WS_SERVICES:=database redis backend frontend}"
 
-# Services that publish host ports in main/docker-compose.yaml (verified 2026-07).
+# Services that publish host ports.
 # These get their ports stripped per-workspace so N stacks don't collide.
-# Regenerate: see README (parses the compose file).
-HOLO_PORT_SERVICES=(nginx redis database jaeger-all-in-one otel-collector \
-  webserver mcp-server internal-gql-server celery flower localstack)
+HOLO_PORT_SERVICES=(nginx redis database backend frontend jaeger-all-in-one otel-collector \
+  webserver celery flower localstack)
 
-# ---- per-app defaults (main). Overridden by the app manifest below. ----
-: "${HOLO_COMPOSE_FILE:=docker-compose.yaml}"          # compose filename in the checkout
-: "${HOLO_APP_SERVICE:=webserver}"                     # app container (preview remaps its port)
-: "${HOLO_APP_PORT:=6543}"                             # app internal port
+# ---- per-app defaults. Overridden by the app manifest below. ----
+: "${HOLO_COMPOSE_FILE:=compose.yaml}"                 # compose filename in the checkout
+: "${HOLO_APP_SERVICE:=backend}"                      # app container (preview remaps its port)
+: "${HOLO_APP_PORT:=8000}"                             # app internal port
 : "${HOLO_PG_SERVICE:=database}"                        # postgres service
-: "${HOLO_PG_USER:=jsqapp}"                            # postgres user (warm-DB probe)
-: "${HOLO_PG_DB:=jsq}"                                 # postgres db
+: "${HOLO_PG_USER:=postgres}"                          # postgres user (warm-DB probe)
+: "${HOLO_PG_DB:=postgres}"                            # postgres db
 : "${HOLO_READINESS_PATH:=/readyz}"                    # readiness endpoint (no Host header)
-: "${HOLO_READINESS_SCHEME:=http}"                     # http|https — https for TLS entrypoints (nginx/qong on 443/8989)
-: "${HOLO_SEED_PROOF_SQL:=SELECT count(*) FROM arena;}" # >0 only when the DB is seeded
+: "${HOLO_READINESS_SCHEME:=http}"                     # http|https
+: "${HOLO_SEED_PROOF_SQL:=SELECT 1;}"                  # seed proof query
 : "${HOLO_PGDATA_OVERRIDE:=}"                          # compose override relocating pgdata (named-volume apps)
 
-# ---- app manifest: per-app overrides. HOLO_APP=main is the default. ----
+# ---- app manifest: per-app overrides. HOLO_APP=full-stack-application is the default. ----
 # (HOLO_DIR and holodeck.local.env are handled at the top of this file — they must come
 #  before the derived defaults above.)
-HOLO_APP="${HOLO_APP:-main}"
+HOLO_APP="${HOLO_APP:-full-stack-application}"
 if [[ -f "$HOLO_DIR/manifests/$HOLO_APP.sh" ]]; then
   # shellcheck disable=SC1090
   source "$HOLO_DIR/manifests/$HOLO_APP.sh"
@@ -88,7 +82,7 @@ ok()   { printf '%s[holo]%s %s\n' "$_cg" "$_co" "$*"; }
 warn() { printf '%s[holo]%s %s\n' "$_cy" "$_co" "$*" >&2; }
 die()  { printf '%s[holo]%s %s\n' "$_cr" "$_co" "$*" >&2; exit 1; }
 
-# ---- ticket -> safe id/project ("JSQ-118" -> "jsq-118") ----
+# ---- ticket -> safe id/project ("FSA-101" -> "fsa-101") ----
 holo_id() { echo "$1" | tr '[:upper:] /' '[:lower:]--' | tr -cd 'a-z0-9-'; }
 
 # ---- portable stat helpers (GNU coreutils on Linux, BSD stat on macOS) ----
@@ -226,7 +220,7 @@ holo_check_cow() {
 #
 # Real incidents this prevents (both hit on 2026-08-03):
 #   - `make refresh-token` writes ./.secrets/CODEARTIFACT_TOKEN into the checkout
-#   - a hand-added OVERRIDE_TOKEN (a real compliance-permissioned JWT) in .env
+#   - a hand-added OVERRIDE_TOKEN (a real authorization JWT) in .env
 : "${HOLO_SECRET_SCRUB_PATHS:=.secrets .aws}"          # deleted before snapshot
 : "${HOLO_SECRET_FORBIDDEN_KEYS:=OVERRIDE_TOKEN}"      # must not appear in .env
 

@@ -1,6 +1,6 @@
 # overrides/full-stack-application.pgdata.yaml
 #
-# Two jobs, same as control-tower.pgdata.yaml / compliance.pgdata.yaml:
+# Two primary functions:
 #
 #   1. Give db a bind-mounted data directory inside the checkout, so a
 #      copy-on-write clone carries a warm, seeded DB. Post-split, the

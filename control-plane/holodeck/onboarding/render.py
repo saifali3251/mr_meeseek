@@ -1,5 +1,5 @@
 """Renders an approved OnboardingRequest into a real manifests/<app>.sh file —
-the same shape a human writes by hand (see ../../manifests/compliance.sh), so
+the same shape a human writes by hand (see ../../manifests/full-stack-application.sh), so
 nothing downstream (control-plane's on-disk allowlist, golden-build.sh,
 strike.sh) needs to know this file was generated rather than hand-authored.
 

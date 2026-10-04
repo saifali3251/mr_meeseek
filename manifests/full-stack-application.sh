@@ -5,9 +5,7 @@
 # COMPOSITE, two independently-owned repos (test_backend, test_frontend) —
 # split deliberately (2026-09-22) so Holodeck can target either repo
 # independently via a ticket's target_repo, producing a repo-specific PR
-# (backend-only or frontend-only), not one PR touching both. Same mechanism
-# control-tower's HOLO_COMPOSITE_REPOS/target_repo uses, just two repos
-# instead of six, and no federation/gateway tier to stitch together.
+# (backend-only or frontend-only), not one PR touching both.
 #
 # test_backend/test_frontend are PLACEHOLDER names (repos not pushed yet as
 # of this revision) — update HOLO_GIT_BASE and the repo names below together
@@ -19,10 +17,7 @@ HOLO_APP=full-stack-application
 : "${HOLO_GOLDEN:=$HOLO_ROOT/golden-full-stack-application}"
 
 # golden-build stages overrides/full-stack-application.compose.yaml into HOLO_SRC
-# under this name — now fully self-contained (declares db/backend/frontend
-# itself), same as control-tower's own composite override. No separate base
-# compose.yaml to merge with anymore — that file lived in the single-repo
-# layout and doesn't exist post-split.
+# under this name — fully self-contained (declares db/backend/frontend itself).
 HOLO_COMPOSE_FILE=compose.full-stack-application.yaml
 
 HOLO_COMPOSITE_REPOS="test_backend test_frontend"
@@ -51,8 +46,7 @@ HOLO_PGDATA_MODE=named-volume
 HOLO_PGDATA_OVERRIDE="overrides/full-stack-application.pgdata.yaml"
 
 # Fallback subdir when a lease has no target_repo at all (e.g. a human
-# striking from /ops without picking one) — arbitrary pick between the two,
-# same "pick one as primary" convention control-tower's HOLO_GIT_SUBDIR uses.
+# striking from /ops without picking one).
 HOLO_GIT_SUBDIR=test_backend
 
 : "${HOLO_MIGRATE_CMD:=alembic upgrade head}"

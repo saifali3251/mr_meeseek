@@ -7,10 +7,9 @@
 #   (1) COMPOSE_PROJECT_NAME fully isolates N stacks on one host
 #   (2) Postgres comes up warm on a cloned pgdata (no reseed / migrate)
 #
-# App selection is via the manifest (HOLO_APP, default main):
-#   ./strike.sh JSQ-118                              # main, isolated, no host ports
-#   ./strike.sh JSQ-118 --preview 18018             # main, app on 0.0.0.0:18018
-#   HOLO_APP=compliance ./strike.sh CPL-1 --preview 18081   # compliance hero
+# App selection is via the manifest (HOLO_APP, default full-stack-application):
+#   ./strike.sh FSA-101                              # isolated, no host ports
+#   ./strike.sh FSA-101 --preview 18018             # app on 0.0.0.0:18018
 #
 # With --preview it also verifies the app live: polls the readiness endpoint and
 # runs the seeded-data proof query.
@@ -129,8 +128,8 @@ else
 fi
 
 # ---- readiness (only when the app port is exposed) ----
-# Scheme is manifest-driven (HOLO_READINESS_SCHEME): TLS entrypoints (main nginx:443,
-# compliance-ui qong:8989) serve HTTPS with a self-signed cert, so a plain-HTTP poll
+# Scheme is manifest-driven (HOLO_READINESS_SCHEME): TLS entrypoints
+# serve HTTPS with a self-signed cert, so a plain-HTTP poll
 # used to print a false "not answering". For https we poll with -k.
 if [[ -n "$PREVIEW_PORT" ]]; then
   ready_url="${HOLO_READINESS_SCHEME}://127.0.0.1:$PREVIEW_PORT$HOLO_READINESS_PATH"

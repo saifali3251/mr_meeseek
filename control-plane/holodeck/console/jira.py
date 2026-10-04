@@ -40,12 +40,8 @@ def _author(a: Optional[dict]) -> str:
 
 
 # Block-level ADF node types — a flattened line boundary goes after each of
-# these. Without it, sibling paragraphs/headings/list items collapse into one
-# run-on string with zero separator (confirmed on a real ticket: CRLT-894/895's
-# ADF description flattened to "Repo: jsq-control-tower-componentsComponent:
-# ..." with no space at all — breaking JiraBridge's line-anchored `Repo:` regex,
-# since the whole description became a single "line" with nothing before the
-# repo name's own text but not ending there either).
+# these to prevent sibling nodes from collapsing into a single run-on string
+# without line breaks.
 _BLOCK_ADF_TYPES = {
     "paragraph", "heading", "blockquote", "bulletList", "orderedList",
     "listItem", "codeBlock", "rule", "table", "tableRow", "panel", "expand",
