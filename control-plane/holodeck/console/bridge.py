@@ -75,6 +75,10 @@ You must strictly adhere to the architecture conventions, typing rules, and pre-
 Scope the ticket and share your implementation plan, then proceed directly to \
 implementing it — no need to stop and wait for approval first.
 
+EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
+1. Preferred: If a coding sub-agent CLI (e.g. claude, codex, opencodex, cursor-agent, hermes, pi, or agy) is installed in this machine's PATH, you may dispatch the implementation plan to it.
+2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
+
 Do not push a branch or open a pull request yourself, even a draft — that step \
 belongs to Meeseek, not you. Commit your work on the branch that's already \
 checked out in this session — do not create or switch to a new branch, even one \
@@ -125,8 +129,9 @@ When you post your plan that reaches the ticket reporter, keep it focused on the
 # The FINISH hand-off convention _BEHAVIOR_PREAMBLE mandates the agent write
 # once it's actually done (not on interim status updates). Used by
 # JiraBridge._check_halt as a second, narrow gate alongside session_state ==
-# "idle" — a fixed phrase we ourselves require, not a guess at wording.
+# "idle" — fixed phrases we check for hand-off / blocker states.
 _FINISH_MARKER = "Your action:"
+_HANDOFF_MARKERS = ("Your action:", "What I need from you", "Blocker.")
 
 
 def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
@@ -344,10 +349,20 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: failed to start — {e}")
             return "error"
-        self._repo_blocked.discard(key)  # started fine after an earlier nag (edited + re-triggered)
+        if rec.status == "queued":
+            max_limit = getattr(self.manager.cfg, "max_app_leases", 3)
+            msg = (
+                f"⏳ **Meeseek on Standby (Queued)**\n"
+                f"*\"I'm Mr. Meeseeks, look at me! Application capacity reached ({max_limit} active workspaces). "
+                f"Ticket **{key}** is queued and will boot automatically once an active workspace is released.\"*\n\n"
+                f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
+                f"• **Status**: Queued in FIFO workspace line"
+            )
+            self._say(key, msg)
+            return "queued"
+
         links = [(label, url) for label, url in
                  (("Preview", rec.preview_url),) if url]
-        tunnel_hint = self.manager._tunnel_cmd(rec) or (f"preview port {rec.preview_port}" if rec.preview_port else "no preview port")
         mode_hint = "Plan-only mode (`/plan` mandate active: formulating plan without code edits)" if plan_only else "In-sandbox coding underway..."
         msg = (
             f"🚀 **Meeseek on the job!**\n"
@@ -355,8 +370,7 @@ class JiraBridge:
             f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
             f"• **Live Preview**: [{rec.preview_url}]({rec.preview_url})\n"
             f"• **Guardrails Active**: `CLAUDE.md` repository conventions pre-grounded\n"
-            f"• **Status**: {mode_hint}\n\n"
-            f"*(Tunnel: `{tunnel_hint}`)*"
+            f"• **Status**: {mode_hint}"
         )
         self._say(key, msg, links=links or None)
         return "started"
@@ -522,7 +536,7 @@ class JiraBridge:
                            "to start a new one.")
         try:
             self.jira.set_labels(
-                key, remove=[self.cfg.jira_reset_label, self.cfg.jira_halt_label])
+                key, remove=[self.cfg.jira_reset_label, self.cfg.jira_halt_label, self.cfg.jira_trigger_label])
         except Exception:
             log.exception("jira set_labels (reset cleanup) failed for %s", key)
         return "reset"
@@ -571,7 +585,8 @@ class JiraBridge:
                 rec.halted = False
                 self.manager.store.put(rec)
             return
-        if not rec.stable_agent_message or _FINISH_MARKER not in rec.stable_agent_message:
+        has_handoff = any(m in (rec.stable_agent_message or "") for m in _HANDOFF_MARKERS)
+        if not rec.stable_agent_message or not has_handoff:
             return  # idle, but hasn't actually handed off yet (e.g. mid-dispatch)
         if rec.halted:
             return  # already signaled for this idle period
@@ -582,7 +597,8 @@ class JiraBridge:
             log.exception("jira set_labels (halt) failed for %s", rec.ticket)
             return  # retry next tick
         rec.halted = True
-        if rec.plan_only:
+        msg = rec.stable_agent_message or ""
+        if rec.plan_only or "Blocker." in msg or "What I need from you" in msg:
             rec.workflow_state = "WAITING_INPUT"
             self._say(
                 rec.ticket,

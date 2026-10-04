@@ -38,16 +38,31 @@ source "$SCRIPT_DIR/lib.sh"
 
 # Everything a non-script consumer needs to talk to a workspace correctly.
 # Keep in sync with manifests/README.md's contract table.
-for _v in \
-  HOLO_APP \
-  HOLO_ROOT HOLO_WORKSPACES HOLO_GOLDEN HOLO_SRC \
-  HOLO_COMPOSE_FILE HOLO_PGDATA_OVERRIDE HOLO_GIT_SUBDIR \
-  HOLO_APP_SERVICE HOLO_APP_PORT \
-  HOLO_PG_SERVICE HOLO_PG_USER HOLO_PG_DB \
-  HOLO_READINESS_PATH HOLO_READINESS_SCHEME HOLO_SEED_PROOF_SQL \
-  HOLO_TEST_CMD \
-  HOLO_COMPOSITE_REPOS \
+# Dynamically include any HOLO_* variables defined by the manifest (including
+# repo-specific overrides like HOLO_TEST_CMD_<repo>, HOLO_TEST_SERVICE_<repo>).
+_VARS=(
+  HOLO_APP
+  HOLO_ROOT HOLO_WORKSPACES HOLO_GOLDEN HOLO_SRC
+  HOLO_COMPOSE_FILE HOLO_PGDATA_OVERRIDE HOLO_GIT_SUBDIR
+  HOLO_APP_SERVICE HOLO_APP_PORT
+  HOLO_PG_SERVICE HOLO_PG_USER HOLO_PG_DB
+  HOLO_READINESS_PATH HOLO_READINESS_SCHEME HOLO_SEED_PROOF_SQL
+  HOLO_TEST_CMD
+  HOLO_COMPOSITE_REPOS
   WS_SERVICES
-do
-  printf '%s=%s\n' "$_v" "${!_v-}"
+)
+
+for _k in $(compgen -v HOLO_ 2>/dev/null); do
+  _VARS+=("$_k")
+done
+
+_SEEN=""
+for _v in "${_VARS[@]}"; do
+  case " $_SEEN " in
+    *" $_v "*) ;;
+    *)
+      _SEEN="$_SEEN $_v"
+      printf '%s=%s\n' "$_v" "${!_v-}"
+      ;;
+  esac
 done

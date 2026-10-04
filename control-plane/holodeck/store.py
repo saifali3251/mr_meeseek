@@ -151,6 +151,21 @@ class LeaseStore:
             "SELECT COUNT(*) AS c FROM leases WHERE status IN ('pending','queued','ready')")
         return rows[0]["c"]
 
+    def count_active_for_app(self, app: str) -> int:
+        """Leases currently occupying container runtime capacity for this application:
+        pending or ready. (Queued leases wait in line and do not consume container capacity)."""
+        rows = self.db.query(
+            "SELECT COUNT(*) AS c FROM leases WHERE app=? AND status IN ('pending', 'ready')",
+            (app,))
+        return rows[0]["c"]
+
+    def count_queued_for_app(self, app: str) -> int:
+        """Leases currently waiting in queue for this application."""
+        rows = self.db.query(
+            "SELECT COUNT(*) AS c FROM leases WHERE app=? AND status = 'queued'",
+            (app,))
+        return rows[0]["c"]
+
     def expired(self, now: float) -> list[Lease]:
         rows = self.db.query(
             "SELECT * FROM leases WHERE status NOT IN ('released','failed') AND expires_at<=?",

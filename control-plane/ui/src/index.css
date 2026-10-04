@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-meeseek-950 text-slate-100 transition-colors duration-200;
+  }
+  html:not(.dark) body {
+    @apply bg-slate-50 text-slate-900;
+  }
+}
+
+/* Custom sleek dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+/* Glass card styling for Dark & Light */
+.glass-panel {
+  background: rgba(15, 22, 41, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 41, 59, 0.8);
+}
+
+html:not(.dark) .glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+.glass-panel-interactive {
+  background: rgba(15, 22, 41, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 41, 59, 0.8);
+  transition: all 0.2s ease-in-out;
+}
+
+html:not(.dark) .glass-panel-interactive {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 15px -2px rgba(0, 0, 0, 0.05);
+}
+
+.glass-panel-interactive:hover {
+  background: rgba(21, 30, 54, 0.85);
+  border-color: rgba(51, 65, 85, 0.9);
+}
+
+html:not(.dark) .glass-panel-interactive:hover {
+  background: #ffffff;
+  border-color: rgba(203, 213, 225, 1);
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.08);
+}
+
+/* Custom glow borders */
+.glow-cyan {
+  box-shadow: 0 0 15px rgba(0, 210, 255, 0.15);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+}
+

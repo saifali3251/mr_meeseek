@@ -19,6 +19,7 @@ on the lease API itself (`GET /leases`, `/environments`, `POST /leases`, …).
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import asdict
 from typing import Optional
 
@@ -51,6 +52,22 @@ class NewTeamRequest(BaseModel):
     name: str
     contact: str = ""
     slug: Optional[str] = None
+
+
+class CapacityRequest(BaseModel):
+    max_app_leases: int
+    role: Optional[str] = "superadmin"
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    authenticated: bool
+    username: str
+    role: str
 
 
 # Fixed demo hostnames — the 3 provisioned preview envs. A lease maps to one of
@@ -130,6 +147,8 @@ def build_ops_router(service: LeaseService, cfg: Config,
                 "environments_ready": sum(1 for e in envs if e["ready"]),
                 "environments_total": len(envs),
                 "max_leases": cfg.max_leases,
+                "max_app_leases": getattr(service, "max_app_leases", cfg.max_app_leases),
+                "queued": sum(1 for l in leases if l.status == LeaseStatus.QUEUED),
             },
             "apps": [cfg.app_label(a) for a in visible_apps],
             "default_app": default_app,
@@ -268,6 +287,34 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(404, "no such lease")
         except ProviderError as e:
             raise HTTPException(502, str(e))
+
+    @r.post("/ops/capacity")
+    def ops_set_capacity(body: CapacityRequest) -> dict:
+        if body.role and body.role != "superadmin":
+            raise HTTPException(403, "Superadmin role required to update cluster capacity limits")
+        limit = service.set_max_app_leases(body.max_app_leases)
+        return {"max_app_leases": limit}
+
+    @r.post("/ops/auth/login", response_model=LoginResponse)
+    def ops_login(body: LoginRequest) -> dict:
+        u = body.username.strip().lower()
+        p = body.password.strip()
+
+        # Ensure passwords are configured in environment
+        if not cfg.admin_password and not cfg.superadmin_password:
+            raise HTTPException(503, "Authentication passwords are not configured on the server. Please set MEESEEK_ADMIN_PASSWORD in your environment / holodeck.env.")
+
+        # Superadmin check
+        if u in ("superadmin", "root", "devops"):
+            if cfg.superadmin_password and secrets.compare_digest(p, cfg.superadmin_password):
+                return {"authenticated": True, "username": u, "role": "superadmin"}
+
+        # Admin / Judge check
+        if u in ("admin", "judge", "evaluator"):
+            if cfg.admin_password and secrets.compare_digest(p, cfg.admin_password):
+                return {"authenticated": True, "username": u, "role": "admin"}
+
+        raise HTTPException(401, "Invalid username or password.")
 
     return r
 
