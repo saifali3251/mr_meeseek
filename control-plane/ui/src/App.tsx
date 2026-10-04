@@ -68,7 +68,9 @@ export const App: React.FC = () => {
     try { localStorage.setItem("meeseek-console-theme", isDark ? "dark" : "light"); } catch (e) {}
   }, [isDark]);
 
-  // Load ops state & onboarding requests
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
+
+  // Load ops state via one-shot fetch (used as immediate fetch or on explicit actions)
   const loadState = useCallback(async () => {
     try {
       const data = await fetchOpsState(
@@ -77,27 +79,85 @@ export const App: React.FC = () => {
       setState(data);
       setLastUpdated(new Date().toLocaleTimeString());
 
-      if (!selectedLeaseId && data.leases.length > 0) {
+      if (!selectedLeaseId && data.leases && data.leases.length > 0) {
         setSelectedLeaseId(data.leases[0].lease_id);
       }
-
-      if (selectedRole === "admin" || activeTab === "onboarding") {
-        const onb = await fetchOnboardingRequests();
-        setOnboardingRequests(onb);
-      }
     } catch (err) {
-      console.error("Error polling ops state:", err);
+      console.error("Error fetching ops state:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [selectedRole, selectedLeaseId, activeTab, state?.team]);
+  }, [selectedRole, selectedLeaseId, state?.team]);
 
-  // Initial load and continuous quiet live polling
+  // Load onboarding requests when in onboarding tab or admin role
   useEffect(() => {
-    loadState();
-    const interval = setInterval(loadState, 2000);
-    return () => clearInterval(interval);
-  }, [loadState]);
+    if (selectedRole === "admin" || activeTab === "onboarding") {
+      fetchOnboardingRequests()
+        .then(setOnboardingRequests)
+        .catch((err) => console.error("Error fetching onboarding requests:", err));
+    }
+  }, [selectedRole, activeTab]);
+
+  // Real-Time Server-Sent Events (SSE) Stream
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    const connectSSE = () => {
+      const teamSlug = selectedRole === "team" && state?.team ? state.team.slug : undefined;
+      const sseUrl = teamSlug ? `/ops/events?team=${encodeURIComponent(teamSlug)}` : `/ops/events`;
+
+      try {
+        eventSource = new EventSource(sseUrl);
+
+        eventSource.onopen = () => {
+          setIsLiveConnected(true);
+          setIsLoading(false);
+        };
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data: OpsState = JSON.parse(event.data);
+            setState(data);
+            setLastUpdated(new Date().toLocaleTimeString());
+            setIsLoading(false);
+            setIsLiveConnected(true);
+
+            if (!selectedLeaseId && data.leases && data.leases.length > 0) {
+              setSelectedLeaseId(data.leases[0].lease_id);
+            }
+          } catch (err) {
+            console.error("Error parsing SSE event data:", err);
+          }
+        };
+
+        eventSource.onerror = (err) => {
+          console.warn("SSE connection error or interrupted, reconnecting...", err);
+          setIsLiveConnected(false);
+        };
+      } catch (e) {
+        console.error("Failed to initialize EventSource, using fallback polling:", e);
+        loadState();
+        fallbackInterval = setInterval(loadState, 10000);
+      }
+    };
+
+    if (typeof EventSource !== "undefined") {
+      connectSSE();
+    } else {
+      loadState();
+      fallbackInterval = setInterval(loadState, 10000);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+      }
+    };
+  }, [selectedRole, state?.team?.slug]);
 
   // Handle Destroy Lease
   const handleDestroyLease = async (leaseId: string, ticket?: string) => {
@@ -150,6 +210,7 @@ export const App: React.FC = () => {
         }}
         authUser={authUser}
         onSignOut={handleSignOut}
+        isLiveConnected={isLiveConnected}
       />
 
       {/* Fluid Subheader Navigation & Action Bar */}

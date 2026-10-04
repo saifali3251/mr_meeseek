@@ -275,3 +275,16 @@ def test_pr_url_surfaces_in_ops_state(client, service):
     client.post("/ops/leases/cpl-1/finalize")
     row = next(l for l in client.get("/ops/state").json()["leases"] if l["lease_id"] == "cpl-1")
     assert "pull" in row["evidence"]["pr_url"]
+
+
+def test_ops_events_stream_initial_snapshot(client):
+    import json
+    client.post("/ops/strike", json={"app": "full-stack-application", "ticket": "SSE-1"})
+    with client.stream("GET", "/ops/events?limit=1") as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        line = next(response.iter_lines())
+        while not line or not line.startswith("data:"):
+            line = next(response.iter_lines())
+        data = json.loads(line[len("data:"):].strip())
+        assert any(l["lease_id"] == "sse-1" for l in data["leases"])

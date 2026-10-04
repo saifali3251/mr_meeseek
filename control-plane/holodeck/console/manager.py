@@ -77,6 +77,18 @@ class ConsoleManager:
         self.store = store
         self.client = lease_client
         self.driver = driver
+        self._change_listeners: list = []
+
+    def add_change_listener(self, fn) -> None:
+        if fn not in self._change_listeners:
+            self._change_listeners.append(fn)
+
+    def _notify_change(self) -> None:
+        for fn in list(self._change_listeners):
+            try:
+                fn()
+            except Exception:
+                log.exception("console change listener failed")
 
     def trigger(self, ticket: str, app: Optional[str] = None,
                 prompt: Optional[str] = None, target_repo: Optional[str] = None,
@@ -119,11 +131,13 @@ class ConsoleManager:
             plan_only=plan_only,
         )
         self.store.put(rec)
+        self._notify_change()
         return rec
 
     def refresh(self) -> None:
         """Re-derive each live task's state from the lease API (+ Omnigent). Never
         raises — the poller must survive a bad tick."""
+        changed = False
         for rec in self.store.all():
             if rec.is_terminal:
                 continue
@@ -196,8 +210,11 @@ class ConsoleManager:
                     rec.elicitation_id = None
                     rec.question = None
                 self.store.put(rec)
+                changed = True
             except Exception:
                 log.exception("refresh failed for task %s", rec.ticket)
+        if changed:
+            self._notify_change()
 
     def answer(self, ticket: str, text: str) -> tuple[TaskRecord, Optional[bool]]:
         """Human reply from Jira. If the agent is blocked on an elicitation and
@@ -233,6 +250,7 @@ class ConsoleManager:
             rec.status = "ready"
         rec.workflow_state = "CODING"
         self.store.put(rec)
+        self._notify_change()
         return rec, verdict
 
     def reiterate(self, ticket: str, feedback: str) -> TaskRecord:
@@ -256,6 +274,7 @@ class ConsoleManager:
             rec.status = "ready"
         rec.workflow_state = "CODING"
         self.store.put(rec)
+        self._notify_change()
         return rec
 
     def finalize(self, ticket: str, *, ticket_summary: Optional[str] = None,
@@ -297,6 +316,7 @@ class ConsoleManager:
         rec.last_action = "finalized"
         rec.last_action_at = time.time()
         self.store.put(rec)
+        self._notify_change()
         return rec, evidence
 
     def release(self, ticket: str) -> TaskRecord:
@@ -310,6 +330,7 @@ class ConsoleManager:
         rec.status = "released"
         rec.workflow_state = "RELEASED"
         self.store.put(rec)
+        self._notify_change()
         return rec
 
     def _tunnel_cmd(self, rec: TaskRecord) -> Optional[str]:

@@ -24,6 +24,7 @@ interface HeaderProps {
   onSignOut?: () => void;
   isDark: boolean;
   onToggleTheme: () => void;
+  isLiveConnected?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -34,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
   isDark,
   onToggleTheme,
+  isLiveConnected = false,
 }) => {
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -101,6 +103,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Bar: Role Dropdown & Auth Session */}
           <div className="flex items-center space-x-3">
+            {/* Real-time SSE indicator */}
+            <div className={`hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border transition-colors ${
+              isLiveConnected 
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${isLiveConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+              <span>{isLiveConnected ? "Real-time ⚡" : "Connecting..."}</span>
+            </div>
+
             {/* Day / night toggle */}
             <button
               type="button"

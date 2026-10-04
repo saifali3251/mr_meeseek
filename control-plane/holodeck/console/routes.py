@@ -4,6 +4,7 @@ app. Routes are provider-agnostic — they only talk to ConsoleManager."""
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Body, HTTPException, Request
@@ -17,6 +18,8 @@ from holodeck.console.leaseclient import HttpLeaseClient
 from holodeck.console.manager import ConsoleError, ConsoleManager
 from holodeck.console.poller import ConsolePoller
 from holodeck.console.store import ConsoleStore
+
+log = logging.getLogger("holodeck.console.routes")
 
 
 class TriggerRequest(BaseModel):
@@ -113,7 +116,11 @@ def build_jira_router(bridge: JiraBridge, cfg) -> APIRouter:
                         or request.headers.get("x-holodeck-jira-secret", ""))
             if provided != cfg.jira_webhook_secret:
                 raise HTTPException(status_code=401, detail="bad webhook secret")
-        return {"result": bridge.handle(parse_webhook(payload))}
+        res = bridge.handle(parse_webhook(payload))
+        broadcaster = getattr(request.app.state, "broadcaster", None)
+        if broadcaster is not None:
+            broadcaster.notify()
+        return {"result": res}
 
     return r
 
@@ -140,6 +147,10 @@ def mount_console(app, cfg, *, db=None, lease_client=None, omni_client=None, jir
     app.include_router(build_router(manager))
     app.state.console = manager
 
+    broadcaster = getattr(app.state, "broadcaster", None)
+    if broadcaster is not None:
+        manager.add_change_listener(broadcaster.notify)
+
     bridge = None
     if cfg.jira_enabled:
         jc = jira_client or build_jira_client(cfg)
@@ -154,11 +165,13 @@ def mount_console(app, cfg, *, db=None, lease_client=None, omni_client=None, jir
         poller.start()
         app.state.console_poller = poller
         # inbound Jira polling (no webhook): trigger labelled tickets + pull replies,
-        # on its own slower cadence. Only when a project to scan is configured.
-        if bridge is not None and cfg.jira_project:
+        # on its own slower cadence. Only when a project to scan is configured AND interval > 0.
+        if bridge is not None and cfg.jira_project and cfg.jira_poll_interval_s > 0:
             jira_poller = ConsolePoller(manager, cfg.jira_poll_interval_s,
                                         on_tick=bridge.poll_inbound, refresh=False,
                                         name="holo-jira-inbound")
             jira_poller.start()
             app.state.jira_inbound_poller = jira_poller
+        else:
+            log.info("Jira inbound background polling disabled (operating in webhook mode).")
     return manager

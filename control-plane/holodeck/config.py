@@ -312,20 +312,20 @@ class Config:
     )
     # Debounce quiet window (seconds) to batch rapid-fire merges into a single build
     golden_debounce_s: int = field(
-        default_factory=lambda: int(os.environ.get("HOLODECK_GOLDEN_DEBOUNCE_S", "45"))
+        default_factory=lambda: _int_env("HOLODECK_GOLDEN_DEBOUNCE_S", 45)
     )
     # Optional periodic background cron sweep (seconds). 0 = disabled (webhook only)
     golden_cron_s: int = field(
-        default_factory=lambda: int(os.environ.get("HOLODECK_GOLDEN_CRON_S", "0"))
+        default_factory=lambda: _int_env("HOLODECK_GOLDEN_CRON_S", 0)
     )
     # Maximum execution time allowed for a single golden build before timeout
     golden_build_timeout_s: int = field(
-        default_factory=lambda: int(os.environ.get("HOLODECK_GOLDEN_BUILD_TIMEOUT_S", "900"))
+        default_factory=lambda: _int_env("HOLODECK_GOLDEN_BUILD_TIMEOUT_S", 900)
     )
     # inbound polling (no webhook): the project to scan for labelled tickets, and
-    # how often. Empty project = polling off (webhook-only). Default 60s per §flow.
+    # how often. Empty project or 0s interval = polling off (webhook-only, default).
     jira_project: str = field(default_factory=lambda: os.environ.get("HOLODECK_JIRA_PROJECT", ""))
-    jira_poll_interval_s: int = field(default_factory=lambda: int(os.environ.get("HOLODECK_JIRA_POLL_S", "60")))
+    jira_poll_interval_s: int = field(default_factory=lambda: _int_env("HOLODECK_JIRA_POLL_S", 0))
 
     # --- automatic app onboarding (docs/AUTOMATIC_ONBOARDING.md, "Easy Way") ---
     # One flag gates the whole feature (team scoping + the wizard + the admin

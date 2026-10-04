@@ -111,16 +111,30 @@ class LeaseService:
         self._queue: collections.deque[str] = collections.deque()
         self._queue_lock = threading.Lock()
         self.max_app_leases = cfg.max_app_leases
+        self._change_listeners: list = []
         # Re-hydrate existing queued leases from the store in FIFO order
         for l in sorted(self.store.all(), key=lambda r: r.created_at):
             if l.status == LeaseStatus.QUEUED:
                 self._queue.append(l.lease_id)
+
+    def add_change_listener(self, fn) -> None:
+        """Register a callback invoked whenever lease state transitions occur."""
+        if fn not in self._change_listeners:
+            self._change_listeners.append(fn)
+
+    def _notify_change(self) -> None:
+        for fn in list(self._change_listeners):
+            try:
+                fn()
+            except Exception:
+                log.exception("lease change listener failed")
 
     def set_max_app_leases(self, limit: int) -> int:
         """Dynamically update the per-application active workspace capacity limit at runtime."""
         self.max_app_leases = max(1, int(limit))
         self.cfg.max_app_leases = self.max_app_leases
         self._advance_queue()
+        self._notify_change()
         return self.max_app_leases
 
     def _resolve_test_cmd(self, app: str, ticket: str, target_repo: Optional[str] = None) -> Optional[str]:
@@ -190,6 +204,7 @@ class LeaseService:
             port = self.store.ports.reserve()
             lease.preview_port = port
         self.store.put(lease)
+        self._notify_change()
         self._start_strike(lease, app, ticket, port)
         return lease
 
@@ -203,6 +218,7 @@ class LeaseService:
         self.store.put(lease)
         with self._queue_lock:
             self._queue.append(lease.lease_id)
+        self._notify_change()
         return lease
 
     def _start_strike(self, lease: Lease, app: str, ticket: str, port: int) -> None:
@@ -268,6 +284,7 @@ class LeaseService:
             lease.status = LeaseStatus.FAILED
             lease.error = str(exc)
             self.store.put(lease)
+            self._notify_change()
             raise
 
         if self._released_underneath(lease_id):
@@ -307,6 +324,7 @@ class LeaseService:
         lease.handle = handle
         lease.status = LeaseStatus.READY
         self.store.put(lease)
+        self._notify_change()
 
     def _released_underneath(self, lease_id: str) -> bool:
         current = self.store.get(lease_id)
@@ -353,6 +371,7 @@ class LeaseService:
                         lease.preview_port = self.store.ports.reserve()
                     lease.status = LeaseStatus.PENDING
                     self.store.put(lease)
+                    self._notify_change()
                     threading.Thread(
                         target=self._strike_safe,
                         args=(lease, lease.app, lease.ticket, lease.preview_port),
@@ -401,6 +420,7 @@ class LeaseService:
                 evidence.test_output.strip() if evidence.test_output else "(no test output)")
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
         self.store.put(lease)
+        self._notify_change()
         return evidence
 
     def exec(self, lease_id: str, argv: list[str], *, service: Optional[str] = None,
@@ -467,6 +487,7 @@ class LeaseService:
         lease = self._require(lease_id)
         lease.expires_at = time.time() + ttl_s
         self.store.put(lease)
+        self._notify_change()
         return lease
 
     def release(self, lease_id: str) -> Lease:
@@ -490,6 +511,7 @@ class LeaseService:
             self.store.put(lease)
             self.provider.cancel_acquire(lease_id)
             self._advance_queue()
+            self._notify_change()
             return lease
         if lease.handle is not None:
             self.provider.release(lease.handle)
@@ -503,6 +525,7 @@ class LeaseService:
         # free right now — otherwise it's a safe no-op and a later strike
         # completion will retry.
         self._advance_queue()
+        self._notify_change()
         return lease
 
     def _require(self, lease_id: str) -> Lease:
