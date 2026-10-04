@@ -17,8 +17,13 @@ import httpx
 
 log = logging.getLogger("holodeck.assistant")
 
-GEMINI_MODEL = "gemini-1.5-flash"
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+DEFAULT_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-1.5-flash",
+]
 
 STATIC_SYSTEM_RUNBOOK = """
 # MEESEEK SYSTEM ARCHITECTURE & RUNBOOK
@@ -245,55 +250,96 @@ The following is the live status of the cluster at this exact second. Ground you
             }
         }
 
-        url = f"{GEMINI_API_URL}?key={key}"
-        try:
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                resp = await client.post(url, json=payload)
-                if resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
-                    return {
-                        "reply": "⚠️ **Invalid Gemini API Key**: The `GEMINI_API_KEY` provided is invalid or expired. Please verify your Google API key in `holodeck.env`.",
-                        "model": GEMINI_MODEL,
-                        "grounded": False,
-                    }
-                resp.raise_for_status()
-                data = resp.json()
+        preferred_model = os.environ.get("GEMINI_MODEL")
+        candidate_models = [preferred_model] if preferred_model else []
+        for m in DEFAULT_MODELS:
+            if m not in candidate_models:
+                candidate_models.append(m)
 
-            candidates = data.get("candidates") or []
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                reply_text = "".join(p.get("text", "") for p in parts)
+        last_error = None
+        for model_name in candidate_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
+            try:
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    resp = await client.post(url, json=payload)
+                    
+                    if resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
+                        return {
+                            "reply": "⚠️ **Invalid Gemini API Key**: The `GEMINI_API_KEY` provided is invalid or expired. Please verify your Google API key in `holodeck.env`.",
+                            "model": model_name,
+                            "grounded": False,
+                        }
+                    
+                    if resp.status_code == 402:
+                        return {
+                            "reply": (
+                                "⚠️ **Google AI Studio Billing Notice (HTTP 402: Prepayment Depleted)**\n\n"
+                                "Google returned `Your prepayment credits are depleted`. This occurs when an API key is created in a Google Cloud project with billing/prepay enabled but a $0 credit balance.\n\n"
+                                "**How to fix this in 30 seconds (Free Tier)**:\n"
+                                "1. Visit **[Google AI Studio](https://aistudio.google.com/app/apikey)**\n"
+                                "2. Click **Create API Key** → select **'Create API key in a new project'** (do NOT attach an existing billed GCP project).\n"
+                                "3. Copy your new key into `control-plane/holodeck.env` (`GEMINI_API_KEY=...`).\n"
+                                "4. Restart Meeseek (`sudo systemctl restart meeseek`).\n\n"
+                                "*(Google AI Studio free-tier keys include 15 requests/min completely free with zero prepayment needed!)*"
+                            ),
+                            "model": model_name,
+                            "grounded": False,
+                        }
+
+                    if resp.status_code == 404:
+                        log.info("Model %s returned 404, trying next candidate...", model_name)
+                        last_error = resp.text
+                        continue  # Try next candidate model
+
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                candidates = data.get("candidates") or []
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    reply_text = "".join(p.get("text", "") for p in parts)
+                    return {
+                        "reply": reply_text.strip(),
+                        "model": model_name,
+                        "grounded": True,
+                    }
                 return {
-                    "reply": reply_text.strip(),
-                    "model": GEMINI_MODEL,
+                    "reply": "I'm Mr. Meeseeks! I couldn't generate a response for that prompt. Please try asking again!",
+                    "model": model_name,
                     "grounded": True,
                 }
-            return {
-                "reply": "I'm Mr. Meeseeks! I couldn't generate a response for that prompt. Please try asking again!",
-                "model": GEMINI_MODEL,
-                "grounded": True,
-            }
 
-        except httpx.HTTPStatusError as e:
-            log.exception("Gemini API HTTP error: %s", e)
-            status_code = e.response.status_code
-            if status_code == 429:
+            except httpx.HTTPStatusError as e:
+                log.exception("Gemini API HTTP error on model %s: %s", model_name, e)
+                status_code = e.response.status_code
+                if status_code == 404:
+                    last_error = e.response.text
+                    continue
+                if status_code == 429:
+                    return {
+                        "reply": "I'm Mr. Meeseeks! The Google Gemini API is experiencing rate limits (HTTP 429). Please wait a few seconds and try again!",
+                        "model": model_name,
+                        "grounded": False,
+                    }
                 return {
-                    "reply": "I'm Mr. Meeseeks! The Google Gemini API is experiencing rate limits (HTTP 429). Please wait a few seconds and try again!",
-                    "model": GEMINI_MODEL,
+                    "reply": f"⚠️ **Google Gemini API Error** ({status_code}): {e.response.text[:200]}...",
+                    "model": model_name,
                     "grounded": False,
                 }
-            return {
-                "reply": f"⚠️ **Google Gemini API Error** ({status_code}): {e.response.text[:200]}...",
-                "model": GEMINI_MODEL,
-                "grounded": False,
-            }
-        except Exception as e:
-            log.exception("Unexpected error calling Gemini API: %s", e)
-            return {
-                "reply": f"I'm Mr. Meeseeks! An error occurred while communicating with Gemini: {str(e)}",
-                "model": GEMINI_MODEL,
-                "grounded": False,
-            }
+            except Exception as e:
+                log.exception("Unexpected error calling Gemini API: %s", e)
+                return {
+                    "reply": f"I'm Mr. Meeseeks! An error occurred while communicating with Gemini: {str(e)}",
+                    "model": model_name,
+                    "grounded": False,
+                }
+
+        # If all candidates returned 404
+        return {
+            "reply": f"⚠️ **Google Gemini Model Error (HTTP 404)**: None of the candidate models ({', '.join(candidate_models)}) were accessible. Details: {last_error[:200] if last_error else 'Not found'}",
+            "model": candidate_models[0],
+            "grounded": False,
+        }
 
     def _offline_fallback(self, messages: list[dict[str, str]], state_snapshot: dict[str, Any]) -> dict[str, Any]:
         """Provides deterministic live diagnostics when GEMINI_API_KEY is not configured."""

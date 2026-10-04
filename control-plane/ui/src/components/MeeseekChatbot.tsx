@@ -310,7 +310,7 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
                 <div className="flex items-center space-x-1.5">
                   <h3 className="font-bold text-white text-sm">Mr. Meeseeks Copilot</h3>
                   <span className="px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono text-[10px] uppercase font-semibold">
-                    Gemini 1.5
+                    Gemini Flash
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
