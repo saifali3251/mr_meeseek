@@ -415,6 +415,7 @@ export const App: React.FC = () => {
 
             <WorkspacesTable
               onSummon={() => setIsStrikeModalOpen(true)}
+              loading={!state && isLoading}
               leases={state?.leases || []}
               tasks={state?.runs || []}
               jiraBaseUrl={state?.jira_base || ""}
@@ -450,8 +451,8 @@ export const App: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-meeseek-border py-5 text-xs text-slate-500 bg-meeseek-900/40 backdrop-blur-sm">
-        <div className="w-full px-6 lg:px-12 2xl:px-16 flex flex-wrap items-center justify-between gap-2">
+      <footer className="border-t border-meeseek-border pt-5 pb-24 sm:pb-5 text-xs text-slate-500 bg-meeseek-900/40 backdrop-blur-sm">
+        <div className="w-full px-6 lg:px-12 2xl:px-16 sm:pr-[270px] lg:pr-[270px] 2xl:pr-[270px] flex flex-wrap items-center justify-between gap-2">
           <span>Meeseek &middot; Autonomous Junior Engineer &middot; AI Builder Cup Hackathon</span>
           <span className="font-mono">ticket &rarr; certified PR &rarr; live preview</span>
         </div>
