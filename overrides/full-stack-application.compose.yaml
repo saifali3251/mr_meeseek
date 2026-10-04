@@ -6,16 +6,13 @@
 # FULLY SELF-CONTAINED as of the 2026-09-22 repo split (test_backend +
 # test_frontend) — there is no single-repo compose.yaml to merge with
 # anymore (each split repo has its OWN standalone compose.yaml for
-# independent dev, unrelated to this one). Same shape as control-tower's own
-# override: this file IS the whole composite, not a patch on top of
-# something else. golden-build's dc() only ever needs
-# -f compose.full-stack-application.yaml -f <pgdata override> — no third
-# file, no merge step.
+# independent dev, unrelated to this one). This file IS the whole composite,
+# not a patch on top of something else. golden-build's dc() only ever needs
+# -f compose.full-stack-application.yaml -f <pgdata override>.
 #
 # Three jobs:
 #   1. db: plain Postgres, same as either split repo's own compose.yaml.
-#   2. backend: installs the omnigent/claude CLIs at container start (same
-#      recipe as control-tower's devbox/compliance-ui's cpl-webserver), runs
+#   2. backend: installs the omnigent/claude CLIs at container start, runs
 #      as root (no --user/PATH gymnastics needed for the omnigent pip
 #      install — only the claude/node install needs $HOME/.local/bin on
 #      PATH), and adds --reload to uvicorn + bind-mounts source so an
@@ -28,8 +25,7 @@
 #      step even though we discard its output — a small, accepted
 #      inefficiency rather than restructuring the repo's own Dockerfile.
 #
-# Image names pinned in the paired full-stack-application.pgdata.yaml
-# override, not here — same file-split convention control-tower uses.
+# Image names pinned in the paired full-stack-application.pgdata.yaml override.
 
 services:
   db:
@@ -72,19 +68,16 @@ services:
     # transitively needs opentelemetry-instrumentation-fastapi>=0,<1, and
     # every published version of that package is still a beta prerelease
     # (0.65b0, etc. — no stable release exists yet). Plain pip refuses
-    # prereleases unless told to; control-tower's devbox doesn't hit this
-    # because it uses `uv pip install`, which resolves it differently.
+    # prereleases unless told to.
     #
     # curl is also installed explicitly below — python:3.12-slim doesn't
-    # ship it (unlike whatever base control-tower's devbox/compliance-ui's
-    # cpl-webserver use), so the claude/node download would silently pipe
+    # ship it by default, so the claude/node download would silently pipe
     # nothing into tar and crash the container ("curl: not found" -> "gzip:
     # unexpected end of file" -> tar exit 1). Guarded by `command -v curl`
     # so it only runs apt-get once per container lifetime, not every start.
     #
     # The Node.js download picks its tarball's architecture from `uname -m`
-    # at runtime instead of a hardcoded linux-x64 URL (what control-tower's
-    # devbox uses verbatim) — confirmed for real on Apple Silicon: a
+    # at runtime instead of a hardcoded linux-x64 URL — confirmed for real on Apple Silicon: a
     # hardcoded x64 binary inside a natively-arm64 container produced a
     # Rosetta ELF-loader crash. Picking the matching arch avoids needing
     # Rosetta to translate this one binary at all. Not strictly needed on a
@@ -138,16 +131,14 @@ services:
     command: sh -c "npm run dev"
     environment:
       # Redirects vite.config.ts's proxy target from its host-oriented
-      # default (localhost:18000) to the in-network service name — same
-      # "STITCH" pattern control-tower's MAIN_API_URL override uses.
+      # default (localhost:18000) to the in-network service name.
       VITE_API_PROXY_TARGET: "http://backend:8000"
     ports:
       - "${FRONTEND_PORT:-13000}:5173"
     volumes:
       - ./test_frontend:/app
       # Protects the image's already-`npm install`ed node_modules from being
-      # shadowed by the host bind mount above — same reasoning as
-      # control-tower's `/app/.venv` volume.
+      # shadowed by the host bind mount above.
       - /app/node_modules
     depends_on:
       backend:

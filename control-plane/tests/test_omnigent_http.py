@@ -39,13 +39,13 @@ def _capturing(monkeypatch, payload: bytes = b"{}"):
 
     monkeypatch.setattr(omni_mod.urllib.request, "urlopen", fake_urlopen)
     cfg = Config(omnigent_url="https://omni.example", omnigent_token="tok",
-                 omnigent_agent="compliance-fixer")
+                 omnigent_agent="fsa-fixer")
     return omni_mod.HttpOmnigentClient(cfg), seen
 
 
 def test_start_posts_managed_session_with_bearer_and_prompt(monkeypatch):
     client, seen = _capturing(monkeypatch, payload=b'{"session_id": "sess-1"}')
-    sid = client.start("CPL-1", "compliance", "do the thing")
+    sid = client.start("FSA-1", "full-stack-application", "do the thing")
     assert sid == "sess-1"
     call = seen[-1]
     assert call["url"] == "https://omni.example/v1/sessions"
@@ -54,7 +54,7 @@ def test_start_posts_managed_session_with_bearer_and_prompt(monkeypatch):
     # host_type=managed is what makes the server provision via the holodeck provider
     assert call["data"]["host_type"] == "managed"
     assert "host_id" not in call["data"] and "workspace" not in call["data"]
-    assert call["data"]["agent_id"] == "compliance-fixer"
+    assert call["data"]["agent_id"] == "fsa-fixer"
     # prompt rides in as the first user message (SessionEventInput shape)
     item = call["data"]["initial_items"][0]
     assert item["type"] == "message"

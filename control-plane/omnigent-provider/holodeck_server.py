@@ -18,7 +18,7 @@ site-packages is modified.
 
 Run it exactly like `omnigent`, e.g.:
     HOLODECK_URL=http://<control-plane-host>:8099 \
-    HOLODECK_APP=compliance \
+    HOLODECK_APP=full-stack-application \
     python holodeck_server.py server --config /etc/omnigent/config.yaml
 
 with config.yaml containing:

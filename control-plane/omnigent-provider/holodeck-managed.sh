@@ -24,7 +24,7 @@ SERVER_PORT="${SERVER_PORT:-8080}"                        # omnigent server port
 
 # provider runtime (read by the launcher inside the server)
 HOLODECK_URL="${HOLODECK_URL:-http://127.0.0.1:8099}"     # control-plane lease API (reachable FROM here)
-HOLODECK_APP="${HOLODECK_APP:-compliance}"
+HOLODECK_APP="${HOLODECK_APP:-full-stack-application}"
 HOLODECK_TOKEN="${HOLODECK_TOKEN:-}"                      # only if control plane is network-exposed
 PYTHONPATH_EXTRA="${PYTHONPATH_EXTRA:-}"                  # set to /opt/holodeck ONLY if wheel installed via --target
 
@@ -34,7 +34,7 @@ SERVER_URL="${SERVER_URL:-}"                              # REQUIRED: public URL
 # smoke test
 API_TOKEN="${API_TOKEN:-}"                                # bearer for /v1/*  (blank if auth off)
 AGENT_ID="${AGENT_ID:-}"                                  # durable agent id (blank = skip session, info only)
-TICKET="${TICKET:-CPL-SMOKE}"
+TICKET="${TICKET:-FSA-SMOKE}"
 # ───────────────────────────────────────────────────────────────────────────
 
 log(){ printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }

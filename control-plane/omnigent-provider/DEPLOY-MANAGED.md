@@ -1,7 +1,7 @@
 # Adding the `holodeck` sandbox provider to a managed Omnigent server
 
 **What this enables.** Omnigent sessions on the managed server can request a
-`holodeck` sandbox — a warm, seeded compliance-backend stack — instead of a
+`holodeck` sandbox — a warm, seeded application stack — instead of a
 blank box. The server calls this provider, which provisions the environment via
 the Holodeck control plane (the lease API).
 
@@ -14,7 +14,7 @@ server runs a compatible 0.8.x.
 - The Holodeck control plane is reachable from the server (`HOLODECK_URL`).
 - Provisioned workspaces have network egress back to this Omnigent server (for the
   `omnigent host` dial-back).
-- The compliance golden exists and the workspace runs an `omnigent host` sidecar
+- The application golden exists and the workspace runs an `omnigent host` sidecar
   (model A) so `start_host` completes.
 - The agent's model + GitHub credentials are injected at runtime.
 
@@ -29,7 +29,7 @@ Install from the repo subdirectory at the merged ref:
 
 ```bash
 pip install --no-deps \
-  "git+https://github.com/junipersquare/holodeck.git@<MERGED_REF>#subdirectory=control-plane/omnigent-provider"
+  "git+https://github.com/example/holodeck.git@<MERGED_REF>#subdirectory=control-plane/omnigent-provider"
 ```
 
 Bake this into the server image build, however the deployment is managed.
@@ -99,7 +99,7 @@ SqlAlchemyConversationStore"` should succeed with `/opt/holodeck` on
    ```
    HOLODECK_URL=https://<holodeck-control-plane-host>   # the lease API base URL
    HOLODECK_TOKEN=<shared token>                        # control-plane auth token
-   HOLODECK_APP=compliance                              # app / golden to strike
+   HOLODECK_APP=full-stack-application                 # app / golden to strike
    ```
 
    (URL + token values provided by the Holodeck team.)
@@ -142,7 +142,7 @@ that function at process start, with **no edits to installed site-packages**
 #     server_url: https://<this-omnigent-server-public-url>   # workspace dials back here
 
 HOLODECK_URL=http://<control-plane-host>:8099 \
-HOLODECK_APP=compliance \
+HOLODECK_APP=full-stack-application \
 HOLODECK_TOKEN=<optional; required if the control plane is network-exposed> \
 python /path/to/holodeck_server.py server --config /etc/omnigent/config.yaml
 ```

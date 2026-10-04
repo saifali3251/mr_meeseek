@@ -27,7 +27,7 @@ def _omnigent_manager():
 
 def test_trigger_via_omnigent_captures_session_and_lease():
     mgr, _ = _omnigent_manager()
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     assert rec.lease_id == "cpl-1"            # lease struck by the (fake) provider
     assert rec.session_id == "s-0001"         # Omnigent session captured
     assert rec.status == "ready"
@@ -36,7 +36,7 @@ def test_trigger_via_omnigent_captures_session_and_lease():
 
 def test_waiting_for_input_then_reiterate():
     mgr, omni = _omnigent_manager()
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     omni.force_waiting.add(rec.session_id)    # agent pauses for input
     mgr.refresh()
     assert mgr.store.get("CPL-1").status == "waiting-input"
@@ -49,7 +49,7 @@ def test_waiting_for_input_then_reiterate():
 
 def test_board_has_author_tunnel_command():
     mgr, _ = _omnigent_manager()
-    mgr.trigger("CPL-1", "compliance")
+    mgr.trigger("CPL-1", "full-stack-application")
     row = mgr.board()[0]
     assert row["tunnel_cmd"].startswith("ssh -L ")
     assert "ec2-box" in row["tunnel_cmd"]
@@ -62,7 +62,7 @@ def test_direct_driver_reiterate_is_rejected():
     cfg = Config(provider="fake", console_driver="direct")
     lease = FakeLeaseClient()
     mgr = ConsoleManager(cfg, ConsoleStore(), lease, DirectDriver(lease))
-    mgr.trigger("CPL-1", "compliance")
+    mgr.trigger("CPL-1", "full-stack-application")
     with pytest.raises(ConsoleError):
         mgr.reiterate("CPL-1", "try again")
 
@@ -75,7 +75,7 @@ def test_omnigent_routes_via_app():
     mount_console(app, cfg, lease_client=lease, omni_client=omni, start_poller=False)
     c = TestClient(app)
 
-    r = c.post("/console/trigger", json={"ticket": "CPL-9", "app": "compliance"})
+    r = c.post("/console/trigger", json={"ticket": "CPL-9", "app": "full-stack-application"})
     assert r.status_code == 200, r.text
     assert r.json()["session_id"] == "s-0001"
 
@@ -101,7 +101,7 @@ def test_board_surfaces_agent_session_url_and_answer_verdict():
     omni = FakeOmnigentClient(lease)
     mgr = ConsoleManager(cfg, ConsoleStore(), lease, OmnigentDriver(lease, omni, cfg))
 
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     sid = rec.session_id
     omni.force_elicitation[sid] = ("elicit_1", "Deploy to prod?")
     mgr.refresh()
@@ -172,9 +172,9 @@ def test_extract_pr_url_from_transcript():
          "data": {"role": "user", "content": [{"type": "input_text", "text": "implement it"}]}},
         {"id": "msg_b", "type": "message", "status": "completed",
          "data": {"role": "assistant", "content": [{"type": "output_text",
-         "text": "Opened https://github.com/junipersquare/compliance-backend/pull/4521 — done."}]}},
+         "text": "Opened https://github.com/example/full-stack-application/pull/4521 — done."}]}},
     ]
-    assert H._extract_pr_url(items) == "https://github.com/junipersquare/compliance-backend/pull/4521"
+    assert H._extract_pr_url(items) == "https://github.com/example/full-stack-application/pull/4521"
     assert H._extract_pr_url([]) is None
     assert H._extract_pr_url([{"id": "msg_c", "type": "message", "status": "completed",
         "data": {"role": "assistant", "content": [{"type": "output_text", "text": "no link here"}]}}]) is None
@@ -202,8 +202,8 @@ def test_pr_url_falls_back_to_message_text():
     # to Jira ("Done. PR is up: [..](url)"). Last match wins.
     from holodeck.console.omnigent import HttpOmnigentClient as H
     msg = ("Done. PR is up: **[COMP-4945: Remove section]"
-           "(https://github.com/junipersquare/compliance-backend/pull/2099)**")
-    assert H._pr_from_text(msg) == "https://github.com/junipersquare/compliance-backend/pull/2099"
+           "(https://github.com/example/full-stack-application/pull/2099)**")
+    assert H._pr_from_text(msg) == "https://github.com/example/full-stack-application/pull/2099"
     assert H._pr_from_text(None) is None
     assert H._pr_from_text("no link here") is None
 
@@ -223,12 +223,12 @@ def test_agent_pr_url_surfaces_on_the_run():
     omni = FakeOmnigentClient(lease)
     mgr = ConsoleManager(cfg, ConsoleStore(), lease, OmnigentDriver(lease, omni, cfg))
 
-    rec = mgr.trigger("CPL-1", "compliance")
-    omni.force_pr_url[rec.session_id] = "https://github.com/junipersquare/compliance-backend/pull/9"
+    rec = mgr.trigger("CPL-1", "full-stack-application")
+    omni.force_pr_url[rec.session_id] = "https://github.com/example/full-stack-application/pull/9"
     mgr.refresh()
 
     row = mgr.board()[0]
-    assert row["pr_url"] == "https://github.com/junipersquare/compliance-backend/pull/9"
+    assert row["pr_url"] == "https://github.com/example/full-stack-application/pull/9"
     assert row["workspace"] == "cpl-1"   # the row also carries the workspace for the ws->pr join
 
 
@@ -247,13 +247,13 @@ def test_pr_url_recovered_from_message_when_not_scraped():
     omni = FakeOmnigentClient(lease)
     mgr = ConsoleManager(cfg, ConsoleStore(), lease, OmnigentDriver(lease, omni, cfg))
 
-    rec = mgr.trigger("CPL-2", "compliance")
+    rec = mgr.trigger("CPL-2", "full-stack-application")
     # note: NO force_pr_url — only the narration carries the link
     omni.force_latest_message[rec.session_id] = (
-        "Done. PR is up: **[CPL-2: fix](https://github.com/junipersquare/compliance-backend/pull/77)**")
+        "Done. PR is up: **[CPL-2: fix](https://github.com/example/full-stack-application/pull/77)**")
     mgr.refresh()
 
-    assert mgr.board()[0]["pr_url"] == "https://github.com/junipersquare/compliance-backend/pull/77"
+    assert mgr.board()[0]["pr_url"] == "https://github.com/example/full-stack-application/pull/77"
 
 
 def test_answer_records_persisted_human_verdict_trace():
@@ -272,7 +272,7 @@ def test_answer_records_persisted_human_verdict_trace():
     store = ConsoleStore()
     mgr = ConsoleManager(cfg, store, lease, OmnigentDriver(lease, omni, cfg))
 
-    rec = mgr.trigger("CPL-1", "compliance")
+    rec = mgr.trigger("CPL-1", "full-stack-application")
     omni.force_elicitation[rec.session_id] = ("e1", "Deploy?")
     mgr.refresh()
 

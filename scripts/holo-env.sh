@@ -13,17 +13,16 @@
 # finalize, which runs `docker compose exec` directly — cannot see those values, and
 # guessing them produces silent wrongness:
 #
-#   HOLO_COMPOSE_FILE  guessed "docker-compose.yaml"; compliance uses "compose.yaml"
+#   HOLO_COMPOSE_FILE  guessed "docker-compose.yaml"; some apps use "compose.yaml"
 #   HOLO_WORKSPACES    has no safe default at all -> a RELATIVE path -> FileNotFoundError
-#   HOLO_PG_*          guessed compliance values; wrong for main (database/jsqapp/jsq)
+#   HOLO_PG_*          app-specific postgres user/database
 #   WS_SERVICES        guessed "" -> the services-booted evidence stamp was always empty
 #
 # So: consumers ask lib.sh instead of guessing. Adding a manifest variable makes it
 # available to every consumer by listing it once below.
 #
 # Usage:
-#   HOLO_APP=compliance ./holo-env.sh
-#   HOLO_APP=main       ./holo-env.sh
+#   HOLO_APP=full-stack-application ./holo-env.sh
 #
 # CONTRACT
 #   - one KEY=VALUE per line, no quoting, no trailing whitespace

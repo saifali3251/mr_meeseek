@@ -277,7 +277,7 @@ _WIZARD_PAGE = r"""<!doctype html><html lang="en"><head>
       <div class="field"><label>App name (this becomes the manifest key)</label>
         <input id="newApp" placeholder="e.g. my-service" autocomplete="off"></div>
       <div class="field"><label>Contact (email or Slack)</label>
-        <input id="newContact" placeholder="you@junipersquare.com" autocomplete="off"></div>
+        <input id="newContact" placeholder="engineer@meeseek.io" autocomplete="off"></div>
       <p class="h" style="margin-top:16px">Repos (add one row per repo — more than one means a
         composite/dependency graph; "depends on" + "via" only matter when there's more than one)</p>
       <div id="repoRows"></div>
@@ -292,7 +292,7 @@ let state={requests:[],manifest_fields:[],destructive_fields:[]}, selected=null,
 
 function repoRowHtml(i){return `<div class="repo-row" data-i="${i}">
   <div><label>Repo name</label><input data-f="name" placeholder="backend"></div>
-  <div><label>Git URL (or a local path for testing)</label><input data-f="url" placeholder="https://github.com/junipersquare/…"></div>
+  <div><label>Git URL (or a local path for testing)</label><input data-f="url" placeholder="https://github.com/example/…"></div>
   <div><label>Role</label><select data-f="role"><option>app</option><option>gateway</option><option>db-owner</option><option>frontend</option><option>worker</option></select></div>
   <div><label>Depends on (names, comma-sep)</label><input data-f="depends_on" placeholder="backend"></div>
 </div>`;}

@@ -29,10 +29,10 @@ Runs **`strike.sh <ticket> --preview <port>`** with `HOLO_APP=<app>` injected.
 
 ```json
 // request
-{"app":"compliance","ticket":"CPL-1","preview":18081,"ttl_s":1800}
+{"app":"full-stack-application","ticket":"FSA-101","preview":18081,"ttl_s":1800}
 // 201
-{"lease_id":"cpl-1","status":"ready","preview_port":18000,
- "compose_project":"ws-cpl-1","ws_dir":"/opt/holo/holodeck-data/ws/cpl-1",
+{"lease_id":"fsa-101","status":"ready","preview_port":18000,
+ "compose_project":"ws-fsa-101","ws_dir":"/opt/holo/holodeck-data/ws/fsa-101",
  "golden_head":"224e36c0…","expires_at":1785846612.7}
 ```
 
@@ -41,7 +41,7 @@ Runs **`strike.sh <ticket> --preview <port>`** with `HOLO_APP=<app>` injected.
 | Code | Cause |
 |---|---|
 | **422** | `app` not a `manifests/*.sh` basename, or `ticket` fails `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` |
-| **409** | `ticket`→`lease_id` already leased (`CPL-1` and `CPL/1` both → `cpl-1`) |
+| **409** | `ticket`→`lease_id` already leased (`FSA-101` and `FSA/101` both → `fsa-101`) |
 | **503** | `max_leases` reached |
 | **502** | `strike.sh` failed — partial workspace is rolled back so the ticket stays reusable |
 
@@ -82,7 +82,7 @@ is what *derives* it; this only reads it back.
 
 ## Operator Console (Track E) — `GET /ops`
 
-The single-screen **environment + workspace + evidence** UI (the JSQ-branded mockup, realized).
+The single-screen **environment + workspace + evidence** UI.
 Distinct from the agent run/task board at `/console`: a harness owns runs, this console owns
 environments and proof.
 
@@ -184,7 +184,7 @@ docker compose -p ws-cpl-1 exec webserver <cmd>
 | Gap | Task |
 |---|---|
 | ~~`finalize` does not create a draft PR~~ → **done (E2)**: `HOLODECK_PR=1` pushes the branch + opens a draft PR with the evidence | — |
-| ~~`HOLO_TEST_CMD` unset~~ → **done (D1)**: compliance runs `tests/test_architecture.py` (unit, offline, ~1.4s) at finalize; resolved **per-app from the manifest** via `provider.test_cmd(app)`, captured on the lease at acquire | — |
+| ~~`HOLO_TEST_CMD` unset~~ → **done (D1)**: test suite runs at finalize; resolved **per-app from the manifest** via `provider.test_cmd(app)`, captured on the lease at acquire | — |
 | `WS_SERVICES` is one fixed list per app — no per-lease service profile | future (`HOLO_SERVICE_PROFILES`) |
 | HTTP/WS `exec` unimplemented | **B3** |
 | No lease persistence (in-memory) | **C2** |

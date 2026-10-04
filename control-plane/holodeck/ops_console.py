@@ -591,17 +591,17 @@ function teamCard(){const box=$("#teamCard");
 const DEMO_TEST_SUMMARY="165 passed";
 const DEMO_TEST_NOTE="targeted suite · acceptance criteria";
 const DEMO_TEST_CASES=[
-  "main-openapi-client supports permissions filter on getGranularPermissions",
-  "Requests only known granular permissions — not the unfiltered full list",
-  "New Main-only GranularPermission no longer breaks GPX dashboard auth",
-  "HasComplianceDashboardPermission behavior unchanged (with/without access)",
-  "Filtered call path covered by updated tests",
+  "FastAPI OpenAPI client supports filter on permissions",
+  "Requests only verified authentication tokens",
+  "Dashboard authentication validates role-based permissions",
+  "App endpoint behavior verified with integration tests",
+  "Filtered call path covered by updated test suite",
 ];
-const DEMO_REPOS=["compliance-backend","compliance-ui","compliance-shared"];
+const DEMO_REPOS=["test_backend","test_frontend"];
 
 // Join a lease to its agent-run robustly: the managed flow names the lease after
 // the sandbox (r.workspace===lease_id), but a Jira/console-triggered lease is
-// ticket-derived (comp-4945) while the run carries the real ticket + its own
+// ticket-derived (fsa-101) while the run carries the real ticket + its own
 // lease_id — so match on any of the three, case-insensitive on the ticket.
 function runFor(l){return (state.runs||[]).find(r=>
   r.workspace===l.lease_id || r.lease_id===l.lease_id ||

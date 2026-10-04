@@ -2,7 +2,7 @@
 name = "holodeck-control-plane"
 version = "0.1.0"
 description = "Holodeck thin lease API — a WorkspaceProvider seam over the CoW workspace mechanism (Compose now, EKS later)."
-authors = ["Holodeck Hackathon <eng@junipersquare.com>"]
+authors = ["Meeseek Hackathon Team <team@meeseek.io>"]
 readme = "README.md"
 packages = [{ include = "holodeck" }]
 
