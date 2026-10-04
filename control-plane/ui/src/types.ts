@@ -69,6 +69,7 @@ export interface TaskRecord {
   preview_url?: string;
   preview_port?: number;
   evidence?: Evidence;
+  pr_url?: string;
   plan_only?: boolean;
   halted?: boolean;
 }

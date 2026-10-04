@@ -68,8 +68,8 @@ const STAGES: StageDefinition[] = [
 ];
 
 function getStageIndex(state?: WorkflowState, lease?: Lease, task?: TaskRecord): number {
-  if (lease?.pr_url || task?.evidence?.pr_url) return 5; // Step 6: PR Delivered
-  if (state === "PR_OPENED" || state === "CERTIFIED_PR") return 5;
+  const pr = lease?.pr_url || lease?.evidence?.pr_url || task?.pr_url || task?.evidence?.pr_url;
+  if (pr || state === "PR_OPENED" || state === "CERTIFIED_PR") return 5; // Step 6: PR Delivered
 
   const testExit = task?.evidence?.test_exit ?? lease?.evidence?.test_exit;
   const isFailedNotary =
@@ -183,7 +183,11 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
       ? "IN_PROGRESS" 
       : "PENDING";
 
+  const deliveredPrUrl = lease?.pr_url || lease?.evidence?.pr_url || task?.pr_url || task?.evidence?.pr_url;
+  const isPRDelivered = Boolean(deliveredPrUrl || task?.workflow_state === "CERTIFIED_PR" || task?.workflow_state === "PR_OPENED");
+
   const isAwaitingReview = 
+    !isPRDelivered &&
     (currentIdx === 3 || task?.halted || task?.workflow_state === "HALTED" || task?.workflow_state === "WAITING_INPUT") &&
     task?.workflow_state !== "CODING" &&
     activeInspectStage.key === "PREVIEW";
@@ -557,9 +561,9 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                     Notary Exit 0 proof attached to the PR. Ready for final team review and merge.
                   </p>
                 </div>
-                {lease?.pr_url || task?.evidence?.pr_url ? (
+                {deliveredPrUrl ? (
                   <a
-                    href={lease?.pr_url || task?.evidence?.pr_url}
+                    href={deliveredPrUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all whitespace-nowrap self-start sm:self-auto"

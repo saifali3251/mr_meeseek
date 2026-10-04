@@ -187,6 +187,13 @@ class ConsoleManager:
                     rec.workspace = st.workspace   # the managed sandbox id, for lease<->ticket mapping
                 if st.pr_url:
                     rec.pr_url = st.pr_url          # PR the agent opened itself (from the transcript)
+                # Recover verified PR URL from host lease evidence if present
+                if lease and isinstance(lease, dict):
+                    lease_ev = lease.get("evidence") or {}
+                    if lease_ev.get("pr_url"):
+                        rec.pr_url = lease_ev["pr_url"]
+                    elif lease.get("pr_url"):
+                        rec.pr_url = lease["pr_url"]
                 if not rec.pr_url:
                     # Belt-and-suspenders: recover the PR link from the agent's own
                     # message text — the same "PR is up: <url>" line we relay to Jira,
@@ -198,7 +205,14 @@ class ConsoleManager:
                         if _m:
                             rec.pr_url = _m.group(0)
                             break
-                if rec.waiting:
+
+                # Update workflow state machine: verified PR / notary outcomes are sticky
+                if rec.pr_url or rec.workflow_state in ("CERTIFIED_PR", "PR_OPENED"):
+                    rec.workflow_state = "CERTIFIED_PR"
+                    rec.halted = False
+                elif rec.workflow_state in ("GUARDRAIL_BLOCKED", "NOTARY_FAILED", "NOTARY_TESTING"):
+                    pass  # keep notary status, do not regress to waiting-input
+                elif rec.waiting:
                     rec.workflow_state = "WAITING_INPUT"
                     if rec.status == "ready":
                         rec.status = "waiting-input"

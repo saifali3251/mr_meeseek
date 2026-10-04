@@ -147,6 +147,7 @@ def _lease_dict(l, cfg=None) -> dict:
         "seed_rows": h.seed_rows if h else None,   # live status: warm-DB seeded-row count
         "compose_project": h.compose_project if h else None,
         "evidence": asdict(l.evidence) if l.evidence else None,
+        "pr_url": (l.evidence.pr_url if l.evidence and getattr(l.evidence, "pr_url", None) else None),
     }
 
 
