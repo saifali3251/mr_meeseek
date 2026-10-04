@@ -396,7 +396,37 @@ button[class*="bg-purple-6"]:hover, button[class*="bg-amber-6"]:hover { transfor
     radial-gradient(1.4px 1.4px at 34% 40%, rgb(var(--cyan-400)) 50%, transparent 51%), radial-gradient(1.6px 1.6px at 94% 8%, #FFC94D 50%, transparent 51%);
   animation: twinkle-stars 3.5s ease-in-out infinite alternate; }
 @keyframes twinkle-stars { from { opacity: .45; } to { opacity: .95; } }
-.ls-planet { position: absolute; height: auto; filter: drop-shadow(0 12px 18px rgb(var(--shadow) / .2)); animation: planet-drift 14s ease-in-out infinite alternate; }
+.ls-planet { position: absolute; display: block; aspect-ratio: 1; animation: planet-drift 14s ease-in-out infinite alternate;
+  translate: calc(var(--mx, 0) * var(--depth, 1) * -40px) calc(var(--my, 0) * var(--depth, 1) * -40px); transition: translate .6s cubic-bezier(.2,.7,.2,1);
+  filter: drop-shadow(0 18px 22px rgb(var(--shadow) / .28)) drop-shadow(0 4px 6px rgb(var(--shadow) / .18)); }
+.ls-planet img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.ls-spin img { animation: planet-spin 60s linear infinite; }
+/* fixed light from the top-left: highlight + terminator shadow, clipped to the planet's own shape */
+.ls-shade { position: absolute; inset: 0; pointer-events: none;
+  -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat;
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255,255,255,.75) 0, rgba(255,255,255,.28) 14%, transparent 34%),
+    radial-gradient(circle at 34% 30%, transparent 42%, rgba(12,24,44,.28) 62%, rgba(12,24,44,.62) 88%),
+    radial-gradient(circle at 82% 84%, rgba(108,200,240,.35), transparent 30%); }
+.ls-ring .ls-shade { background:
+    radial-gradient(ellipse 22% 26% at 42% 34%, rgba(255,255,255,.7), transparent 100%),
+    radial-gradient(ellipse 40% 44% at 46% 42%, transparent 55%, rgba(12,24,44,.5) 100%),
+    linear-gradient(160deg, transparent 50%, rgba(12,24,44,.35)); }
+:root[class~="dark"] .ls-shade, html.dark .ls-shade { opacity: .95; }
+@keyframes planet-spin { to { transform: rotate(360deg); } }
+/* 3D saucer: perspective tilt toward the mouse + metallic sheen */
+.login-ufo { perspective: 900px; }
+.login-ufo-tilt { position: relative; display: block; transform-style: preserve-3d; transition: transform .5s cubic-bezier(.2,.7,.2,1);
+  transform: rotateY(calc(var(--mx, 0) * 22deg)) rotateX(calc(var(--my, 0) * -16deg)); }
+.ufo-sheen { position: absolute; inset: 0; z-index: 3; pointer-events: none; transform: rotate(-6deg);
+  -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat;
+  background:
+    linear-gradient(180deg, transparent 62%, rgba(10,22,42,.22) 82%, rgba(10,22,42,.38) 100%),
+    radial-gradient(ellipse 30% 18% at 30% 62%, rgba(255,255,255,.35), transparent 100%),
+    linear-gradient(100deg, transparent 55%, rgba(255,255,255,.22) 66%, transparent 74%);
+  background-size: 100% 100%, 100% 100%, 260% 100%; animation: ufo-glint 6s ease-in-out infinite; }
+@keyframes ufo-glint { 0%,60% { background-position: 0 0, 0 0, 120% 0; } 100% { background-position: 0 0, 0 0, -60% 0; } }
+.login-ufo-img { filter: drop-shadow(0 26px 24px rgb(var(--shadow) / .35)) drop-shadow(0 6px 6px rgb(var(--shadow) / .2)) !important; }
 .ls-saturn { width: 190px; top: 9%; left: 7%; animation-duration: 16s; }
 .ls-moon { width: 170px; bottom: 9%; right: 7%; animation-duration: 18s; animation-delay: -6s; }
 .ls-stripe { width: 74px; top: 16%; right: 15%; animation-duration: 11s; animation-delay: -3s; }
@@ -409,5 +439,94 @@ button[class*="bg-purple-6"]:hover, button[class*="bg-amber-6"]:hover { transfor
   .login-stage { padding-top: 190px; } .login-ufo { width: 230px; } .login-beam { width: 200px; height: 100px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .ls-spin img, .ufo-sheen, .login-ufo-tilt { animation: none !important; transform: none !important; }
   .login-ufo, .login-beam, .login-beam::after, .ls-planet, .ls-stars, .login-stage .glass-panel { animation: none !important; }
 }
+
+/* ---------- Workflow stepper (Meeseek style) ---------- */
+.mee-steps { --node: 48px; padding-top: 4px; }
+.mee-track { position: absolute; top: calc(4px + var(--node) / 2 - 2px); left: calc(100% / 12); right: calc(100% / 12); height: 4px; border-radius: 4px;
+  background: rgb(var(--m-700)); overflow: hidden; }
+.mee-track-fill { position: absolute; inset: 0 auto 0 0; width: calc(var(--progress, 0) * 100%); border-radius: 4px;
+  background: linear-gradient(90deg, rgb(var(--cyan-500)), rgb(var(--cyan-400)) 60%, rgb(var(--purple-400)));
+  transition: width .8s cubic-bezier(.2,.7,.2,1); }
+.mee-track-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat; animation: track-shine 2.4s linear infinite; }
+@keyframes track-shine { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+.mee-node { position: relative; width: var(--node); height: var(--node); border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid rgb(var(--m-border-light)); background: rgb(var(--m-900)); color: rgb(var(--slate-500));
+  box-shadow: 0 6px 16px -10px rgb(var(--shadow) / .5); transition: transform .3s cubic-bezier(.3,1.6,.5,1), box-shadow .3s, background .3s; }
+.mee-step:hover .mee-node { transform: translateY(-3px); }
+.mee-step:focus-visible { outline: none; }
+.mee-step:focus-visible .mee-node, .mee-step.is-selected .mee-node { box-shadow: 0 0 0 4px rgb(var(--m-900)), 0 0 0 6px rgb(var(--purple-400)), 0 10px 22px -12px rgb(var(--shadow) / .6); }
+.mee-step--done .mee-node { background: rgb(var(--cyan-600)); border-color: rgb(var(--cyan-600)); color: #fff; }
+.mee-step--live .mee-node { border-color: rgb(var(--cyan-400)); color: rgb(var(--cyan-400)); background: linear-gradient(rgb(var(--cyan-500) / .12), rgb(var(--cyan-500) / .12)), rgb(var(--m-900)); }
+.mee-step--review .mee-node { border-color: rgb(var(--purple-400)); color: rgb(var(--purple-400)); background: linear-gradient(rgb(var(--purple-500) / .14), rgb(var(--purple-500) / .14)), rgb(var(--m-900)); }
+.mee-step--fail .mee-node { border-color: rgb(var(--red-400)); color: rgb(var(--red-400)); background: linear-gradient(rgb(var(--red-500) / .12), rgb(var(--red-500) / .12)), rgb(var(--m-900)); }
+.mee-step--live .mee-node::after, .mee-step--review .mee-node::after, .mee-step--fail .mee-node::after {
+  content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid currentColor; opacity: 0; animation: node-ping 1.8s cubic-bezier(0,0,.2,1) infinite; }
+@keyframes node-ping { 0% { opacity: .6; transform: scale(.85); } 100% { opacity: 0; transform: scale(1.35); } }
+.mee-step-status { color: rgb(var(--slate-500)); }
+.mee-step--done .mee-step-status { color: rgb(var(--emerald-400)); }
+.mee-step--live .mee-step-status { color: rgb(var(--cyan-400)); }
+.mee-step--review .mee-step-status { color: rgb(var(--purple-400)); font-weight: 600; }
+.mee-step--fail .mee-step-status { color: rgb(var(--red-400)); font-weight: 600; }
+.mee-inspector { background: rgb(var(--m-850) / .7); }
+@media (prefers-reduced-motion: reduce) { .mee-track-fill::after, .mee-node::after { animation: none !important; } }
+
+/* ---------- Workspaces: each workspace is its own colour-coded block ---------- */
+.mee-acc-cyan   { --acc: var(--cyan-400); }
+.mee-acc-orange { --acc: var(--purple-400); }
+.mee-acc-green  { --acc: var(--emerald-400); }
+.mee-acc-violet { --acc: 167 139 250; }
+.mee-ws-gap td { height: 14px; padding: 0; background: transparent; border: 0; }
+.mee-ws-row { transition: background-color .25s, box-shadow .25s; background: rgb(var(--m-900) / .35); }
+.mee-ws-row > td { border-top: 1px solid rgb(var(--m-border)); border-bottom: 1px solid rgb(var(--m-border)); }
+.mee-ws-row > td:first-child { box-shadow: inset 4px 0 0 rgb(var(--acc)); border-left: 1px solid rgb(var(--m-border)); border-top-left-radius: 14px; border-bottom-left-radius: 14px; }
+.mee-ws-row > td:last-child { border-right: 1px solid rgb(var(--m-border)); border-top-right-radius: 14px; border-bottom-right-radius: 14px; }
+.mee-ws-row:hover { background: rgb(var(--acc) / .08); }
+.mee-ws-row:hover > td { border-color: rgb(var(--acc) / .35); }
+.mee-ws-row:hover > td:first-child { box-shadow: inset 6px 0 0 rgb(var(--acc)); }
+.mee-ws-row.is-open { background: rgb(var(--acc) / .10); }
+.mee-ws-row.is-open > td { border-color: rgb(var(--acc) / .45); border-bottom-color: transparent; }
+.mee-ws-row.is-open > td:first-child { border-bottom-left-radius: 0; }
+.mee-ws-row.is-open > td:last-child { border-bottom-right-radius: 0; }
+.mee-ws-detail > td { background: linear-gradient(180deg, rgb(var(--acc) / .07), rgb(var(--m-900) / .4) 120px);
+  border: 1px solid rgb(var(--acc) / .45); border-top: 0; border-radius: 0 0 14px 14px; box-shadow: inset 4px 0 0 rgb(var(--acc)); }
+.mee-ws-detail .mee-steps { --acc-ring: rgb(var(--acc)); }
+.mee-ws-row table, table:has(> tbody > .mee-ws-row) { border-collapse: separate; border-spacing: 0; }
+table:has(> tbody > .mee-ws-row) { padding: 0 12px 12px; }
+
+/* ---------- Step inspector: interactive detail cards ---------- */
+.mee-inspector .grid > div { padding: 12px 14px; border-radius: 12px; background: rgb(var(--m-900) / .55); border: 1px solid rgb(var(--m-border));
+  transition: transform .3s cubic-bezier(.2,.7,.2,1), border-color .2s, box-shadow .3s; }
+.mee-inspector .grid > div:hover { transform: translateY(-3px); border-color: rgb(var(--cyan-400) / .45); box-shadow: 0 14px 28px -18px rgb(var(--shadow) / .6); }
+.mee-inspector a, .mee-inspector button { transition: transform .2s ease, box-shadow .2s ease, background-color .2s; }
+.mee-inspector a:hover, .mee-inspector button:hover { transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) { .mee-inspector .grid > div:hover { transform: none; } }
+
+/* ---------- Step details: warmer, higher-contrast (landing-page palette) ---------- */
+.mee-flow { position: relative; overflow: hidden;
+  background:
+    radial-gradient(ellipse 55% 70% at 100% 100%, rgba(255,138,76,.18), transparent 70%),
+    radial-gradient(ellipse 50% 60% at 0% 0%, rgb(var(--cyan-400) / .14), transparent 70%),
+    rgb(var(--m-900) / .75); }
+.mee-flow::after { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: var(--grain); background-size: 240px; opacity: .55; mix-blend-mode: overlay; }
+.mee-flow > * { position: relative; z-index: 1; }
+.mee-inspector { background:
+    radial-gradient(ellipse 60% 120% at 100% 0%, rgba(255,138,76,.20), transparent 60%),
+    linear-gradient(135deg, rgb(var(--cyan-400) / .09), transparent 55%),
+    rgb(var(--m-800)) !important;
+  border-color: rgb(var(--m-border-light)) !important; }
+.mee-lede { padding-left: 14px; border-left: 3px solid rgb(var(--purple-400)); color: rgb(var(--slate-100)); }
+/* fact cards: each with its own Meeseeks accent */
+.mee-inspector .mee-facts > div { --fc: var(--cyan-400); position: relative; overflow: hidden;
+  background: linear-gradient(180deg, rgb(var(--fc) / .18), rgb(var(--fc) / .06)), rgb(var(--m-800)) !important;
+  border: 1px solid rgb(var(--fc) / .4) !important; padding: 14px 16px 14px 18px !important; border-radius: 14px !important; }
+.mee-inspector .mee-facts > div::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 3px; background: rgb(var(--fc)); }
+.mee-inspector .mee-facts > div:nth-child(2) { --fc: var(--purple-400); }
+.mee-inspector .mee-facts > div:nth-child(3) { --fc: var(--emerald-400); }
+.mee-inspector .mee-facts > div:nth-child(4) { --fc: var(--amber-400); }
+.mee-inspector .mee-facts > div > span:first-child { color: rgb(var(--fc)) !important; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }
+.mee-inspector .mee-facts > div > span:last-child { font-size: 15px; font-weight: 600; color: rgb(var(--white)); }
+.mee-inspector .mee-facts > div:hover { border-color: rgb(var(--fc) / .6) !important; box-shadow: 0 16px 30px -20px rgb(var(--fc) / .7) !important; }

@@ -52,6 +52,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDark = false, o
     }
   };
 
+  // 3D parallax: planets and saucer follow the mouse a little
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const onMove = (e: MouseEvent) => {
+      root.style.setProperty("--mx", ((e.clientX / window.innerWidth) - 0.5).toFixed(3));
+      root.style.setProperty("--my", ((e.clientY / window.innerHeight) - 0.5).toFixed(3));
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => { window.removeEventListener("mousemove", onMove); root.style.removeProperty("--mx"); root.style.removeProperty("--my"); };
+  }, []);
+
   const handleSelectRole = (role: string) => {
     setUsername(role);
   };
@@ -80,17 +91,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDark = false, o
       {/* Little solar system drifting around the page */}
       <div className="login-space" aria-hidden="true">
         <span className="ls-stars" />
-        <img src={pSaturn} alt="" className="ls-planet ls-saturn" />
-        <img src={pMoon} alt="" className="ls-planet ls-moon" />
-        <img src={pStripe} alt="" className="ls-planet ls-stripe" />
-        <img src={pPink} alt="" className="ls-planet ls-pink" />
-        <img src={pBlue} alt="" className="ls-planet ls-blue" />
+        <span className="ls-planet ls-saturn ls-ring" style={{ ["--src" as any]: `url(${pSaturn})`, ["--depth" as any]: 1.2 }}>
+          <img src={pSaturn} alt="" />
+          <i className="ls-shade" />
+        </span>
+        <span className="ls-planet ls-moon ls-spin" style={{ ["--src" as any]: `url(${pMoon})`, ["--depth" as any]: 0.6 }}>
+          <img src={pMoon} alt="" />
+          <i className="ls-shade" />
+        </span>
+        <span className="ls-planet ls-stripe ls-spin" style={{ ["--src" as any]: `url(${pStripe})`, ["--depth" as any]: 1.6 }}>
+          <img src={pStripe} alt="" />
+          <i className="ls-shade" />
+        </span>
+        <span className="ls-planet ls-pink ls-spin" style={{ ["--src" as any]: `url(${pPink})`, ["--depth" as any]: 1.4 }}>
+          <img src={pPink} alt="" />
+          <i className="ls-shade" />
+        </span>
+        <span className="ls-planet ls-blue ls-spin" style={{ ["--src" as any]: `url(${pBlue})`, ["--depth" as any]: 2.0 }}>
+          <img src={pBlue} alt="" />
+          <i className="ls-shade" />
+        </span>
       </div>
 
       <div className="login-stage w-full max-w-md relative z-10">
         {/* Meeseek flies in and beams the login card down */}
         <div className="login-ufo" aria-hidden="true">
-          <img src={ufo} alt="" className="login-ufo-img" />
+          <span className="login-ufo-tilt" style={{ ["--src" as any]: `url(${ufo})` }}>
+            <img src={ufo} alt="" className="login-ufo-img" />
+            <i className="ufo-sheen" />
+          </span>
           <span className="login-beam" />
         </div>
 
