@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Lease, TaskRecord } from "../types";
 import { WorkflowDAGStepper } from "./WorkflowDAGStepper";
+import { SummonBox } from "./SummonBox";
 
 interface WorkspacesTableProps {
   leases: Lease[];
@@ -25,6 +26,7 @@ interface WorkspacesTableProps {
   onExtendLease: (leaseId: string) => void;
   isExtending?: boolean;
   now?: number;
+  onSummon?: () => void;
 }
 
 function formatTTL(expiresAt?: number, now: number = Date.now() / 1000): { text: string; color: "green" | "amber" | "red" } {
@@ -48,6 +50,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
   onExtendLease,
   isExtending = false,
   now = Date.now() / 1000,
+  onSummon,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedLeaseId, setExpandedLeaseId] = useState<string | null>(() => {
@@ -81,12 +84,10 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
   if (leases.length === 0) {
     return (
       <div className="glass-panel rounded-2xl p-12 text-center border border-meeseek-border">
-        <div className="w-12 h-12 rounded-full bg-slate-900 flex items-center justify-center mx-auto mb-4 text-slate-400">
-          <Activity className="w-6 h-6 text-cyan-400" />
-        </div>
-        <h3 className="text-base font-semibold text-white">No Active Workspaces</h3>
+        <SummonBox onClick={onSummon} className="mx-auto mt-6 mb-6 w-[240px]" />
+        <h3 className="text-xl font-semibold text-white">No Meeseeks summoned yet</h3>
         <p className="text-sm text-slate-400 mt-1 max-w-sm mx-auto">
-          Add the <span className="font-mono text-cyan-400 font-semibold">meeseek</span> label to any Jira ticket or click <span className="text-white font-semibold">Strike Workspace</span> to spawn an isolated sandbox.
+          Add the <span className="font-mono text-cyan-400 font-semibold">meeseek</span> label to any Jira ticket, or open the box above (or click <span className="text-white font-semibold">Strike Workspace</span>) to summon an isolated sandbox.
         </p>
       </div>
     );
@@ -94,10 +95,10 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
   return (
     <div className="glass-panel rounded-2xl border border-meeseek-border overflow-hidden shadow-2xl">
-      <div className="px-6 py-4 border-b border-meeseek-border flex items-center justify-between bg-meeseek-950/60">
+      <div className="px-6 py-5 border-b border-meeseek-border flex items-center justify-between bg-meeseek-850/60">
         <div>
           <h3 className="text-lg font-bold text-white flex items-center space-x-2.5">
-            <span>Live Ephemeral Workspaces</span>
+            <span>Live ephemeral workspaces</span>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
               {leases.length} Active
             </span>
@@ -110,7 +111,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="bg-meeseek-950/90 text-slate-400 uppercase font-mono text-xs tracking-wider border-b border-meeseek-border">
+          <thead className="bg-meeseek-850/80 text-slate-400 uppercase font-mono text-xs tracking-wider border-b border-meeseek-border">
             <tr>
               <th className="py-3.5 px-6">Ticket / Workspace</th>
               <th className="py-3.5 px-4">Target App</th>
