@@ -28,6 +28,7 @@ interface WorkspacesTableProps {
   onSummon?: () => void;
   selectedApp?: string;
   onResetFilter?: () => void;
+  loading?: boolean;
 }
 
 function formatTTL(expiresAt?: number, now: number = Date.now() / 1000): { text: string; color: "green" | "amber" | "red" } {
@@ -54,6 +55,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
   onSummon,
   selectedApp,
   onResetFilter,
+  loading = false,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedLeaseId, setExpandedLeaseId] = useState<string | null>(() => {

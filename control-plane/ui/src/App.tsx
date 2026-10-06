@@ -524,6 +524,7 @@ export const App: React.FC = () => {
               now={state?.now}
               selectedApp={selectedApp}
               onResetFilter={() => setSelectedApp("all")}
+              loading={isLoading}
             />
           </div>
         )}
