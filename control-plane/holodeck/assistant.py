@@ -25,6 +25,8 @@ DEFAULT_MODELS = [
     "gemini-1.5-flash",
 ]
 
+GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again in a moment."
+
 STATIC_SYSTEM_RUNBOOK = """
 # MEESEEK SYSTEM ARCHITECTURE & RUNBOOK
 
@@ -65,6 +67,11 @@ Applications are defined in `manifests/<app>.sh`:
 - `HOLO_TEST_CMD`: The non-negotiable verification test suite run by Host Notary (e.g. `npm run lint && npx tsc -b`, `PYTHONPATH=. pytest tests/`).
 - `HOLO_SEED_SCRIPT`: Script executed during Golden Build to populate the database with warm fixtures.
 - Golden Sync: Automatically triggers a golden build rebuild when commits are pushed to the GitHub repository via webhooks.
+
+## 6. Onboarding & Trial Failure Debugging
+- Engineering teams can register microservices and composite applications via the Onboarding Wizard.
+- Before publishing, an in-wizard Trial Dry-Run builds the golden stack and verifies the Host Notary test command (`HOLO_TEST_CMD`).
+- If a user asks about a failed trial build, analyze the `trial_error` and `trial_log_tail` from `onboarding_pipeline`. Clearly explain the root cause (e.g. missing import, wrong test path, port mismatch) and give concise recommendations.
 """
 
 def _sanitize_traceback(output: Optional[str], max_lines: int = 100) -> str:
@@ -177,6 +184,18 @@ class MeeseekAssistant:
             },
             "active_workspaces": active_workspaces,
             "recent_notary_failures": recent_failures,
+            "onboarding_pipeline": [
+                {
+                    "request_id": req.get("request_id") or req.get("id"),
+                    "app_name": req.get("app_name"),
+                    "team": req.get("team_slug"),
+                    "status": req.get("status"),
+                    "trial_error": req.get("trial_error"),
+                    "trial_log_tail": _sanitize_traceback(req.get("trial_log"), max_lines=40),
+                }
+                for req in (state_snapshot.get("onboarding_requests") or [])
+                if isinstance(req, dict)
+            ],
         }
 
         return json.dumps(context_data, indent=2)
@@ -276,30 +295,23 @@ The following is the live status of the cluster at this exact second. Ground you
                     resp = await client.post(url, json=payload)
                     
                     if resp.status_code == 400 and "API_KEY_INVALID" in resp.text:
+                        log.error("Gemini API key is invalid or expired: %s", resp.text)
                         return {
-                            "reply": "⚠️ **Invalid Gemini API Key**: The `GEMINI_API_KEY` provided is invalid or expired. Please verify your Google API key in `holodeck.env`.",
+                            "reply": GENERIC_ERROR_MESSAGE,
                             "model": model_name,
                             "grounded": False,
                         }
                     
                     if resp.status_code == 402:
+                        log.error("Gemini API billing error (HTTP 402 - prepayment depleted): %s", resp.text)
                         return {
-                            "reply": (
-                                "⚠️ **Google AI Studio Billing Notice (HTTP 402: Prepayment Depleted)**\n\n"
-                                "Google returned `Your prepayment credits are depleted`. This occurs when an API key is created in a Google Cloud project with billing/prepay enabled but a $0 credit balance.\n\n"
-                                "**How to fix this in 30 seconds (Free Tier)**:\n"
-                                "1. Visit **[Google AI Studio](https://aistudio.google.com/app/apikey)**\n"
-                                "2. Click **Create API Key** → select **'Create API key in a new project'** (do NOT attach an existing billed GCP project).\n"
-                                "3. Copy your new key into `control-plane/holodeck.env` (`GEMINI_API_KEY=...`).\n"
-                                "4. Restart Meeseek (`sudo systemctl restart meeseek`).\n\n"
-                                "*(Google AI Studio free-tier keys include 15 requests/min completely free with zero prepayment needed!)*"
-                            ),
+                            "reply": GENERIC_ERROR_MESSAGE,
                             "model": model_name,
                             "grounded": False,
                         }
 
                     if resp.status_code in (404, 503):
-                        log.info("Model %s returned HTTP %d, failing over to next candidate...", model_name, resp.status_code)
+                        log.warning("Model %s returned HTTP %d, failing over to next candidate...", model_name, resp.status_code)
                         last_error = resp.text
                         continue  # Try next candidate model
 
@@ -315,40 +327,36 @@ The following is the live status of the cluster at this exact second. Ground you
                         "model": model_name,
                         "grounded": True,
                     }
+                log.warning("Gemini returned empty candidates for model %s", model_name)
                 return {
-                    "reply": "I'm Mr. Meeseeks! I couldn't generate a response for that prompt. Please try asking again!",
+                    "reply": GENERIC_ERROR_MESSAGE,
                     "model": model_name,
-                    "grounded": True,
+                    "grounded": False,
                 }
 
             except httpx.HTTPStatusError as e:
-                log.exception("Gemini API HTTP error on model %s: %s", model_name, e)
+                log.error("Gemini API HTTP error on model %s: %s", model_name, e)
                 status_code = e.response.status_code
                 if status_code in (404, 503):
                     last_error = e.response.text
                     continue
-                if status_code == 429:
-                    return {
-                        "reply": "I'm Mr. Meeseeks! The Google Gemini API is experiencing rate limits (HTTP 429). Please wait a few seconds and try again!",
-                        "model": model_name,
-                        "grounded": False,
-                    }
                 return {
-                    "reply": f"⚠️ **Google Gemini API Error** ({status_code}): {e.response.text[:200]}...",
+                    "reply": GENERIC_ERROR_MESSAGE,
                     "model": model_name,
                     "grounded": False,
                 }
             except Exception as e:
-                log.exception("Unexpected error calling Gemini API: %s", e)
+                log.exception("Unexpected error calling Gemini API on model %s: %s", model_name, e)
                 return {
-                    "reply": f"I'm Mr. Meeseeks! An error occurred while communicating with Gemini: {str(e)}",
+                    "reply": GENERIC_ERROR_MESSAGE,
                     "model": model_name,
                     "grounded": False,
                 }
 
-        # If all candidates returned 404
+        # If all candidates returned 404/503
+        log.error("All Gemini candidate models failed. Last error: %s", last_error)
         return {
-            "reply": f"⚠️ **Google Gemini Model Error (HTTP 404)**: None of the candidate models ({', '.join(candidate_models)}) were accessible. Details: {last_error[:200] if last_error else 'Not found'}",
+            "reply": GENERIC_ERROR_MESSAGE,
             "model": candidate_models[0],
             "grounded": False,
         }

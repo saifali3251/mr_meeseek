@@ -247,6 +247,14 @@ def build_ops_router(service: LeaseService, cfg: Config,
         snap["pool"] = pool.state() if pool is not None else {"enabled": False}
         golden_sync = getattr(app_state, "golden_sync", None)
         snap["golden_sync"] = golden_sync.state() if golden_sync is not None else {}
+        onboarding = getattr(app_state, "onboarding", None)
+        if onboarding is not None:
+            try:
+                from holodeck.onboarding.routes import _req_dict
+                reqs = onboarding.list_for_team(team.slug) if team else onboarding.list_all()
+                snap["onboarding_requests"] = [_req_dict(r) for r in reqs]
+            except Exception:
+                snap["onboarding_requests"] = []
         return snap
 
     def _resolve_and_stamp(request: Request, response: Response) -> Optional[Team]:
@@ -404,6 +412,17 @@ def build_ops_router(service: LeaseService, cfg: Config,
             return {"connected": True, "exists": False, "ticket": ticket}
         except Exception as e:
             return {"connected": True, "exists": False, "ticket": ticket, "detail": str(e)}
+
+    @r.post("/ops/onboard/validate-repo")
+    async def ops_validate_repo(request: Request) -> dict:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        url = body.get("url") or body.get("git_url", "")
+        branch = body.get("branch", "main")
+        from holodeck.onboarding.git_validator import validate_git_repo
+        return validate_git_repo(url, branch)
 
     @r.post("/ops/leases/{lease_id}/finalize")
     def ops_finalize(lease_id: str, request: Request, response: Response) -> dict:

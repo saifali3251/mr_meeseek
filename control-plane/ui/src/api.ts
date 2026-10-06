@@ -124,54 +124,124 @@ export async function createTeam(
   return res.json();
 }
 
+export async function validateGitRepository(
+  url: string,
+  branch: string = "main"
+): Promise<{ valid: boolean; commit_sha?: string; full_sha?: string; branch?: string; message?: string; error?: string }> {
+  try {
+    const res = await fetch(`${BASE_URL}/ops/onboard/validate-repo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, branch }),
+    });
+    if (res.ok) return await res.json();
+    // Fallback to /onboarding/validate-repo
+    const fb = await fetch(`${BASE_URL}/onboarding/validate-repo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, branch }),
+    });
+    if (fb.ok) return await fb.json();
+    const err = await fb.json().catch(() => ({ detail: fb.statusText }));
+    return { valid: false, error: err.detail || err.error || "Validation failed" };
+  } catch (err: any) {
+    return { valid: false, error: err.message || "Failed to reach git validation service" };
+  }
+}
+
 export async function fetchOnboardingRequests(team?: string): Promise<OnboardingRequest[]> {
-  const url = team ? `${BASE_URL}/onboarding/requests?team=${encodeURIComponent(team)}` : `${BASE_URL}/onboarding/requests`;
-  const res = await fetch(url).catch(() => null);
-  if (!res || !res.ok) return [];
-  const data = await res.json().catch(() => ({ requests: [] }));
-  return data.requests || [];
+  try {
+    // 1. Try admin onboarding state (unscoped platform review queue)
+    const adminRes = await fetch(`${BASE_URL}/ops/admin/onboarding/state`).catch(() => null);
+    if (adminRes && adminRes.ok) {
+      const data = await adminRes.json();
+      if (Array.isArray(data.requests)) {
+        return data.requests.map((r: any) => ({ ...r, id: r.request_id || r.id }));
+      }
+    }
+
+    // 2. Try team state if team provided
+    if (team) {
+      const teamRes = await fetch(`${BASE_URL}/ops/onboard/state?team=${encodeURIComponent(team)}`).catch(() => null);
+      if (teamRes && teamRes.ok) {
+        const data = await teamRes.json();
+        if (Array.isArray(data.requests)) {
+          return data.requests.map((r: any) => ({ ...r, id: r.request_id || r.id }));
+        }
+      }
+    }
+
+    // 3. Fallback to programmatic /onboarding/requests
+    const url = team ? `${BASE_URL}/onboarding/requests?team=${encodeURIComponent(team)}` : `${BASE_URL}/onboarding/requests`;
+    const res = await fetch(url).catch(() => null);
+    if (res && res.ok) {
+      const data = await res.json();
+      return (data.requests || []).map((r: any) => ({ ...r, id: r.request_id || r.id }));
+    }
+  } catch (err) {
+    console.warn("fetchOnboardingRequests error:", err);
+  }
+  return [];
 }
 
 export async function createOnboardingRequest(data: {
   team_slug: string;
   app_name: string;
   contact?: string;
-  compose_file_path?: string;
-  ports?: number[];
-  seed_database?: boolean;
-  seed_sql_path?: string;
-  test_command?: string;
+  jira_project?: string;
+  test_cmd?: string;
+  preview_port?: string;
   repos: Array<{
     name: string;
     url: string;
     branch: string;
     role: string;
     test_cmd?: string;
+    depends_on?: string[];
   }>;
 }): Promise<any> {
-  const res = await fetch(`${BASE_URL}/onboarding/requests`, {
+  // Try /ops/onboard/requests first (session & cookie friendly)
+  let res = await fetch(`${BASE_URL}/ops/onboard/requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+
+  if (!res.ok && res.status === 404) {
+    // Fallback to /onboarding/requests only if route not found
+    res = await fetch(`${BASE_URL}/onboarding/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to submit onboarding request");
+    throw new Error(err.detail || err.error || "Failed to submit onboarding request");
   }
   return res.json();
 }
 
 export async function approveOnboardingRequest(
   requestId: string,
-  token: string
+  token?: string
 ): Promise<any> {
-  const res = await fetch(`${BASE_URL}/onboarding/requests/${requestId}/approve`, {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res = await fetch(`${BASE_URL}/ops/admin/onboarding/requests/${encodeURIComponent(requestId)}/approve`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
   });
+
+  if (!res.ok && res.status === 404) {
+    res = await fetch(`${BASE_URL}/onboarding/admin/requests/${encodeURIComponent(requestId)}/approve`, {
+      method: "POST",
+      headers,
+    });
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Failed to approve onboarding request");
@@ -179,18 +249,124 @@ export async function approveOnboardingRequest(
   return res.json();
 }
 
-export async function triggerTrialRun(
+export async function rejectOnboardingRequest(
   requestId: string,
-  ticket: string = "ONB-TRIAL"
+  reason: string,
+  token?: string
 ): Promise<any> {
-  const res = await fetch(`${BASE_URL}/onboarding/requests/${requestId}/trial-strike`, {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res = await fetch(`${BASE_URL}/ops/admin/onboarding/requests/${encodeURIComponent(requestId)}/reject`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ reason }),
+  });
+
+  if (!res.ok && res.status === 404) {
+    res = await fetch(`${BASE_URL}/onboarding/admin/requests/${encodeURIComponent(requestId)}/reject`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to reject onboarding request");
+  }
+  return res.json();
+}
+
+export async function triggerTrialRun(
+  requestId: string
+): Promise<any> {
+  let res = await fetch(`${BASE_URL}/ops/onboard/requests/${encodeURIComponent(requestId)}/trial`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticket }),
+  });
+
+  if (!res.ok && res.status === 404) {
+    res = await fetch(`${BASE_URL}/onboarding/requests/${encodeURIComponent(requestId)}/trial`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || err.error || `Trial failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function submitOnboardingForReview(
+  requestId: string
+): Promise<any> {
+  let res = await fetch(`${BASE_URL}/ops/onboard/requests/${encodeURIComponent(requestId)}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!res.ok && res.status === 404) {
+    res = await fetch(`${BASE_URL}/onboarding/requests/${encodeURIComponent(requestId)}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || err.error || "Failed to submit request for review");
+  }
+  return res.json();
+}
+
+export async function deleteOnboardingRequest(
+  requestId: string,
+  isAdmin: boolean = false
+): Promise<any> {
+  const primaryUrl = isAdmin
+    ? `${BASE_URL}/ops/admin/onboarding/requests/${encodeURIComponent(requestId)}`
+    : `${BASE_URL}/ops/onboard/requests/${encodeURIComponent(requestId)}`;
+
+  let res = await fetch(primaryUrl, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!res.ok && (res.status === 404 || res.status === 405)) {
+    const fallbackUrl = isAdmin
+      ? `${BASE_URL}/ops/onboard/requests/${encodeURIComponent(requestId)}`
+      : `${BASE_URL}/ops/admin/onboarding/requests/${encodeURIComponent(requestId)}`;
+    res = await fetch(fallbackUrl, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok && (res.status === 404 || res.status === 405)) {
+      res = await fetch(`${BASE_URL}/onboarding/requests/${encodeURIComponent(requestId)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || err.error || `Failed to delete onboarding request (${res.status} ${res.statusText})`);
+  }
+  return res.json();
+}
+
+export async function triggerGoldenRebuild(app?: string): Promise<any> {
+  const qs = app ? `?app=${encodeURIComponent(app)}&force=true` : `?force=true`;
+  const res = await fetch(`${BASE_URL}/ops/golden/rebuild${qs}`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to trigger trial strike");
+    throw new Error(err.detail || "Failed to trigger golden rebuild");
   }
   return res.json();
 }

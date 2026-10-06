@@ -24,6 +24,9 @@ def _to_row(r: OnboardingRequest) -> tuple:
         "trial_log": r.trial_log,
         "trial_error": r.trial_error,
         "reject_reason": r.reject_reason,
+        "jira_project": r.jira_project,
+        "test_cmd": r.test_cmd,
+        "preview_port": r.preview_port,
         "created_at": r.created_at,
     }
     return (r.request_id, r.team_slug, r.app_name, r.status.value,
@@ -32,14 +35,31 @@ def _to_row(r: OnboardingRequest) -> tuple:
 
 def _from_row(row) -> OnboardingRequest:
     payload = json.loads(row["payload_json"])
+    raw_repos = payload.get("repos", [])
+    repos: list[RepoSpec] = []
+    for x in raw_repos:
+        repos.append(RepoSpec(
+            name=x.get("name", ""),
+            url=x.get("url", ""),
+            branch=x.get("branch", "main"),
+            role=x.get("role", "app"),
+            test_cmd=x.get("test_cmd"),
+            depends_on=x.get("depends_on", []),
+            via=x.get("via"),
+            env_var=x.get("env_var"),
+        ))
+
     return OnboardingRequest(
         request_id=row["request_id"], team_slug=row["team_slug"], app_name=row["app_name"],
         contact=payload.get("contact", ""),
-        repos=[RepoSpec(**x) for x in payload.get("repos", [])],
+        repos=repos,
         status=OnboardingStatus(row["status"]),
         manifest={k: ManifestField(**v) for k, v in payload.get("manifest", {}).items()},
         trial_log=payload.get("trial_log", ""), trial_error=payload.get("trial_error"),
         reject_reason=payload.get("reject_reason"),
+        jira_project=payload.get("jira_project"),
+        test_cmd=payload.get("test_cmd"),
+        preview_port=payload.get("preview_port"),
         created_at=row["created_at"], updated_at=row["updated_at"],
     )
 
@@ -77,3 +97,23 @@ class OnboardingStore:
             "SELECT * FROM onboarding_requests WHERE status=? ORDER BY created_at",
             (status.value,))
         return [_from_row(r) for r in rows]
+
+    def list_all(self) -> list[OnboardingRequest]:
+        rows = self.db.query(
+            "SELECT * FROM onboarding_requests ORDER BY created_at DESC"
+        )
+        return [_from_row(r) for r in rows]
+
+    def delete(self, request_id: str) -> bool:
+        self.db.execute("DELETE FROM onboarding_requests WHERE request_id=?", (request_id,))
+        return True
+
+    def count_active_leases_for_app(self, app_name: str) -> int:
+        try:
+            rows = self.db.query(
+                "SELECT count(*) as cnt FROM leases WHERE app=? AND status IN ('ready', 'striking', 'allocated')",
+                (app_name,)
+            )
+            return int(rows[0]["cnt"]) if rows else 0
+        except Exception:
+            return 0

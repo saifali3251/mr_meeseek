@@ -417,6 +417,8 @@ def create_app(cfg: Config, service: LeaseService,
     # HOLODECK_ONBOARDING gate); a bare create_app(cfg, service) — every
     # existing test's call shape — stays byte-identical to before this existed.
     if teams is not None and onboarding is not None:
+        app.state.onboarding = onboarding
+        app.state.teams = teams
         app.include_router(build_onboarding_api_router(onboarding, cfg))
         app.include_router(build_onboarding_pages_router(onboarding, teams))
 

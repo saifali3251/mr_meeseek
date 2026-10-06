@@ -89,6 +89,18 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
   };
 
   useEffect(() => {
+    const handleAsk = (e: any) => {
+      const prompt = e.detail?.prompt;
+      if (prompt) {
+        setIsOpen(true);
+        setInput(prompt);
+      }
+    };
+    window.addEventListener("meeseek:ask", handleAsk);
+    return () => window.removeEventListener("meeseek:ask", handleAsk);
+  }, []);
+
+  useEffect(() => {
     if (isOpen) {
       scrollToBottom();
       setTimeout(() => inputRef.current?.focus(), 150);
@@ -178,10 +190,11 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
       };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err: any) {
+      console.error("Chatbot request error:", err);
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,
         role: "assistant",
-        content: `⚠️ **Mr. Meeseeks encountered an issue**: ${err.message || "Failed to reach control plane"}. Please check your connection or verify \`GEMINI_API_KEY\` in your environment.`,
+        content: "Something went wrong. Please try again in a moment.",
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errorMsg]);

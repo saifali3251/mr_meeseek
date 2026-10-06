@@ -116,6 +116,9 @@ class TeamStore:
         rows = self.db.query("SELECT app FROM app_teams WHERE team_slug=?", (team_slug,))
         return {r["app"] for r in rows}
 
+    def unassign_app(self, app: str) -> None:
+        self.db.execute("DELETE FROM app_teams WHERE app=?", (app,))
+
 
 def resolve_team(request: "Request", store: Optional[TeamStore]) -> Optional[Team]:
     """Query params win (the share link itself); the cookie is the fallback so

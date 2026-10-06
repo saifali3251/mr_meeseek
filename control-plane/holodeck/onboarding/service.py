@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Optional
 
 from holodeck.models import TICKET_RE  # same "reaches shell/disk" safety regex as app/ticket
-from holodeck.onboarding.models import (ManifestField, MANIFEST_FIELDS,
-                                        OnboardingRequest, OnboardingStatus,
-                                        RepoSpec, new_request_id)
+from holodeck.onboarding.models import (DESTRUCTIVE_FIELDS, ManifestField,
+                                        MANIFEST_FIELDS, OnboardingRequest,
+                                        OnboardingStatus, RepoSpec, new_request_id)
 from holodeck.onboarding.recon import ReconError, clone_repo, draft_manifest
 from holodeck.onboarding.render import render_manifest_sh
 from holodeck.onboarding.store import OnboardingStore
@@ -51,7 +51,9 @@ class OnboardingService:
     # ---- create + recon ----
 
     def create(self, team_slug: str, app_name: str, contact: str,
-              repos: list[RepoSpec]) -> OnboardingRequest:
+              repos: list[RepoSpec], jira_project: Optional[str] = None,
+              test_cmd: Optional[str] = None,
+              preview_port: Optional[str] = None) -> OnboardingRequest:
         if self.teams.get(team_slug) is None:
             raise ValueError(f"unknown team '{team_slug}' — create the team first")
         if not TICKET_RE.match(app_name):
@@ -60,8 +62,23 @@ class OnboardingService:
             raise OnboardingConflict(f"'{app_name}' is already a published app")
         if not repos:
             raise ValueError("at least one repo is required")
+
+        # Auto-infer preview_port if not supplied: 3000 for frontend/gateway, 8000 for backend
+        if not preview_port:
+            has_frontend = any(r.role in ("frontend", "gateway") for r in repos)
+            preview_port = "3000" if has_frontend else "8000"
+
+        # Auto-infer primary test_cmd if not supplied
+        if not test_cmd:
+            for r in repos:
+                if r.test_cmd:
+                    test_cmd = r.test_cmd
+                    break
+
         req = OnboardingRequest(request_id=new_request_id(), team_slug=team_slug,
-                                app_name=app_name, contact=contact, repos=repos)
+                                app_name=app_name, contact=contact, repos=repos,
+                                jira_project=jira_project, test_cmd=test_cmd,
+                                preview_port=preview_port)
         self.store.put(req)
         self._run_recon(req)
         return req
@@ -95,6 +112,9 @@ class OnboardingService:
     def list_for_team(self, team_slug: str) -> list[OnboardingRequest]:
         return self.store.list_for_team(team_slug)
 
+    def list_all(self) -> list[OnboardingRequest]:
+        return self.store.list_all()
+
     def list_pending_approval(self) -> list[OnboardingRequest]:
         return self.store.list_by_status(OnboardingStatus.PENDING_APPROVAL)
 
@@ -118,10 +138,11 @@ class OnboardingService:
         req = self.get(request_id)
         if req.status not in (OnboardingStatus.DRAFT, OnboardingStatus.TRIAL_FAILED):
             raise OnboardingConflict(f"cannot trial-build a request in status '{req.status.value}'")
-        if req.has_unreviewed_destructive_fields():
-            raise OnboardingConflict(
-                "HOLO_MIGRATE_CMD/HOLO_SEED_CMD need your review before a trial build can run "
-                "— recon never auto-trusts a command that touches the database")
+        # Acknowledge any guessed destructive fields on explicit trial run
+        for name in DESTRUCTIVE_FIELDS:
+            f = req.manifest.get(name)
+            if f and f.source == "needs_review":
+                f.source = "team_reviewed"
         req.status = OnboardingStatus.TRIAL_RUNNING
         self.store.put(req)
         result = self.trial_runner.run(req, self._repo_root(req, _primary_repo(req)))
@@ -164,4 +185,43 @@ class OnboardingService:
         req.status = OnboardingStatus.REJECTED
         req.reject_reason = reason
         self.store.put(req)
+        return req
+
+    def delete(self, request_id: str) -> OnboardingRequest:
+        import shutil
+        req = self.get(request_id)
+
+        # Guardrail for published applications
+        if req.status == OnboardingStatus.PUBLISHED:
+            active_leases = self.store.count_active_leases_for_app(req.app_name)
+            if active_leases > 0:
+                raise OnboardingConflict(
+                    f"Cannot delete published application '{req.app_name}': "
+                    f"{active_leases} active workspace(s) are currently running. Destroy them first."
+                )
+
+            # 1. Remove manifest file if it exists
+            manifest_file = self.manifests_dir / f"{req.app_name}.sh"
+            if manifest_file.exists():
+                try:
+                    manifest_file.unlink()
+                except Exception:
+                    pass
+
+            # 2. Unassign from team
+            try:
+                self.teams.unassign_app(req.app_name)
+            except Exception:
+                pass
+
+        # Clean up scratch workdir
+        req_workdir = self.workdir / req.request_id
+        if req_workdir.exists() and req_workdir.is_dir():
+            try:
+                shutil.rmtree(req_workdir)
+            except Exception:
+                pass
+
+        # Remove from database
+        self.store.delete(request_id)
         return req

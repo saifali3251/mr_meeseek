@@ -43,6 +43,8 @@ def render_manifest_sh(req: OnboardingRequest) -> str:
     for name in MANIFEST_FIELDS:
         f = req.manifest.get(name)
         value = f.value if f else None
+        if name == "HOLO_APP_PORT" and value is None and req.preview_port:
+            value = str(req.preview_port)
         if value is None:
             lines.append(f"{name}=  # TODO(team): not inferred — fill in before this app is struck")
         elif name in _ARRAY_FIELDS:
@@ -51,4 +53,17 @@ def render_manifest_sh(req: OnboardingRequest) -> str:
             lines.append(f"{name}={int(value)}")
         else:
             lines.append(f"{name}={shlex.quote(value)}")
+
+    # Emit per-repo test verification commands (Host Notary Exit 0 Gates)
+    repo_cmds: list[str] = []
+    for r in req.repos:
+        if r.test_cmd:
+            clean = r.name.replace("-", "_").replace(".", "_")
+            lines.append(f"HOLO_TEST_CMD_{clean}={shlex.quote(r.test_cmd)}")
+            repo_cmds.append(r.test_cmd)
+
+    primary_test_cmd = req.test_cmd or (repo_cmds[0] if repo_cmds else None)
+    if primary_test_cmd:
+        lines.append(f': "${{HOLO_TEST_CMD:={shlex.quote(primary_test_cmd)}}}"')
+
     return "\n".join(lines) + "\n"

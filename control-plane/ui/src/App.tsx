@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { 
   Rocket, 
   Layers, 
@@ -9,7 +9,9 @@ import {
   Server,
   Terminal,
   Sparkles,
-  Clock
+  Clock,
+  RefreshCw,
+  ChevronDown
 } from "lucide-react";
 import { OpsState, Lease, TaskRecord, OnboardingRequest, AuthUser } from "./types";
 import { fetchOpsState, releaseLease, extendLease, fetchOnboardingRequests, setCapacity } from "./api";
@@ -43,7 +45,16 @@ export const App: React.FC = () => {
   });
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("workspaces");
-  const [selectedRole, setSelectedRole] = useState<Role>("team");
+  const [selectedRole, setSelectedRole] = useState<Role>(() => {
+    try {
+      const saved = localStorage.getItem("meeseek_auth_user");
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.role === "superadmin" || u.role === "admin") return "admin";
+      }
+    } catch {}
+    return "team";
+  });
   const [state, setState] = useState<OpsState | null>(null);
   const [onboardingRequests, setOnboardingRequests] = useState<OnboardingRequest[]>([]);
   const [selectedLeaseId, setSelectedLeaseId] = useState<string | null>(null);
@@ -53,8 +64,15 @@ export const App: React.FC = () => {
   const [isDestroying, setIsDestroying] = useState<boolean>(false);
   const [isExtending, setIsExtending] = useState<boolean>(false);
 
+  const isUserAdmin = authUser?.role === "superadmin" || authUser?.role === "admin" || selectedRole === "admin";
+
   const handleLogin = (user: AuthUser) => {
     setAuthUser(user);
+    if (user.role === "superadmin" || user.role === "admin") {
+      setSelectedRole("admin");
+    } else {
+      setSelectedRole("team");
+    }
     try {
       localStorage.setItem("meeseek_auth_user", JSON.stringify(user));
     } catch (e) {
@@ -70,6 +88,71 @@ export const App: React.FC = () => {
       console.error("Failed to clear auth user:", e);
     }
   };
+
+  // Selected Golden Build for filtering and status display (defaults to first available build)
+  const [selectedApp, setSelectedApp] = useState<string>("");
+
+  const availableApps = useMemo(() => {
+    const list: string[] = [];
+    if (state?.apps && state.apps.length > 0) {
+      state.apps.forEach((a) => {
+        if (!list.includes(a)) list.push(a);
+      });
+    }
+    if (state?.environments) {
+      state.environments.forEach((e) => {
+        if (!list.includes(e.app)) list.push(e.app);
+      });
+    }
+    if (onboardingRequests) {
+      onboardingRequests
+        .filter((r) => r.status === "published")
+        .forEach((r) => {
+          if (!list.includes(r.app_name)) list.push(r.app_name);
+        });
+    }
+    if (list.length === 0) {
+      list.push("full-stack-application");
+    }
+    return list;
+  }, [state?.apps, state?.environments, onboardingRequests]);
+
+  // Default to the first available build once loaded
+  useEffect(() => {
+    if (!selectedApp && availableApps.length > 0) {
+      setSelectedApp(availableApps[0]);
+    } else if (selectedApp && selectedApp !== "all" && !availableApps.includes(selectedApp)) {
+      setSelectedApp(availableApps[0]);
+    }
+  }, [availableApps, selectedApp]);
+
+  const currentEnv = useMemo(() => {
+    if (!state?.environments || selectedApp === "all") return null;
+    return (
+      state.environments.find(
+        (e) => e.app.toLowerCase() === selectedApp.toLowerCase()
+      ) || null
+    );
+  }, [state?.environments, selectedApp]);
+
+  const currentGoldenTimestamp = useMemo(() => {
+    if (currentEnv?.golden_updated_at) return currentEnv.golden_updated_at;
+    return state?.golden?.updated_at || null;
+  }, [currentEnv, state?.golden?.updated_at]);
+
+  const filteredLeases = useMemo(() => {
+    if (!state?.leases) return [];
+    if (selectedApp === "all") return state.leases;
+    const target = selectedApp.toLowerCase();
+    return state.leases.filter((l) => {
+      const leaseApp = (l.app || "").toLowerCase();
+      return (
+        leaseApp === target ||
+        leaseApp.includes(target) ||
+        target.includes(leaseApp)
+      );
+    });
+  }, [state?.leases, selectedApp]);
 
   // Day / night theme (matches the landing page). Saved per browser.
   const [isDark, setIsDark] = useState<boolean>(() => document.documentElement.classList.contains("dark"));
@@ -101,12 +184,12 @@ export const App: React.FC = () => {
 
   // Load onboarding requests when in onboarding tab or admin role
   useEffect(() => {
-    if (selectedRole === "admin" || activeTab === "onboarding") {
+    if (isUserAdmin || activeTab === "onboarding") {
       fetchOnboardingRequests()
         .then(setOnboardingRequests)
         .catch((err) => console.error("Error fetching onboarding requests:", err));
     }
-  }, [selectedRole, activeTab]);
+  }, [isUserAdmin, activeTab]);
 
   // Real-Time Server-Sent Events (SSE) Stream
   useEffect(() => {
@@ -352,39 +435,52 @@ export const App: React.FC = () => {
                 {/* CARD 1: LIVE WORKSPACES */}
                 <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[130px] flex flex-col justify-between">
                   <div className="flex items-baseline justify-between">
-                    <div className="mee-stat">{state?.kpis?.live ?? 0}</div>
-                    {!!state?.kpis?.queued && state.kpis.queued > 0 && (
+                    <div className="mee-stat">
+                      {selectedApp === "all" ? (state?.kpis?.live ?? 0) : filteredLeases.length}
+                    </div>
+                    {selectedApp !== "all" && (
+                      <span className="text-[10px] font-mono text-slate-500 ml-1">
+                        / {state?.kpis?.live ?? 0} total
+                      </span>
+                    )}
+                    {selectedApp === "all" && !!state?.kpis?.queued && state.kpis.queued > 0 && (
                       <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
                         +{state.kpis.queued} queued
                       </span>
                     )}
                   </div>
                   <div className="text-[11px] font-mono uppercase tracking-wider text-cyan-400 mt-2">
-                    Live Workspaces
+                    {selectedApp === "all" ? "Live Workspaces" : "Active Strikes"}
                   </div>
                 </div>
 
-                {/* CARD 2: ACTIVE GOLDEN BUILD & FRESHNESS */}
-                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[160px] flex flex-col justify-between">
-                  <div className="flex items-center justify-between space-x-2">
-                    <span 
-                      className="text-sm font-bold text-white tracking-tight truncate max-w-[130px]" 
-                      title={state?.golden?.app || state?.default_app || "full-stack-application"}
+                {/* CARD 2: ACTIVE GOLDEN BUILD SELECTOR & STATUS */}
+                <div className="rounded-xl border border-meeseek-border bg-meeseek-850/70 px-4 py-3 min-w-[260px] flex flex-col justify-between">
+                  <div className="relative w-full">
+                    <select
+                      value={selectedApp}
+                      onChange={(e) => setSelectedApp(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none focus:border-cyan-500 font-mono cursor-pointer appearance-none pr-6 hover:border-slate-600 transition-colors"
+                      title="Select Golden Build to view status and filter strikes"
                     >
-                      {(state?.golden?.app || state?.default_app || "Full-Stack App")
-                        .replace("full-stack-application", "Full-Stack App")}
-                    </span>
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                      Ready (CoW)
-                    </span>
+                      {availableApps.map((app) => (
+                        <option key={app} value={app}>
+                          {app.replace("full-stack-application", "Full-Stack App")}
+                        </option>
+                      ))}
+                      <option value="all">All Applications ({availableApps.length})</option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2 pointer-events-none" />
                   </div>
                   <div className="text-[11px] font-mono text-emerald-400/90 mt-2 flex items-center justify-between">
-                    <span className="uppercase tracking-wider">Golden Build</span>
-                    <span 
-                      className="text-slate-400 font-mono text-[10px] ml-2" 
-                      title={state?.golden?.updated_at ? new Date(state.golden.updated_at * 1000).toLocaleString() : undefined}
+                    <span className="uppercase tracking-wider">
+                      {selectedApp === "all" ? "Fleet Catalog" : "Golden Build"}
+                    </span>
+                    <span
+                      className="text-slate-400 font-mono text-[10px] ml-2"
+                      title={currentGoldenTimestamp ? new Date(currentGoldenTimestamp * 1000).toLocaleString() : undefined}
                     >
-                      {formatGoldenAge(state?.golden?.updated_at)}
+                      Last built {currentGoldenTimestamp ? formatGoldenAge(currentGoldenTimestamp) : "recently"}
                     </span>
                   </div>
                 </div>
@@ -413,10 +509,10 @@ export const App: React.FC = () => {
               </div>
             </section>
 
+
             <WorkspacesTable
               onSummon={() => setIsStrikeModalOpen(true)}
-              loading={!state && isLoading}
-              leases={state?.leases || []}
+              leases={filteredLeases}
               tasks={state?.runs || []}
               jiraBaseUrl={state?.jira_base || ""}
               selectedLeaseId={selectedLeaseId}
@@ -426,6 +522,9 @@ export const App: React.FC = () => {
               onExtendLease={handleExtendLease}
               isExtending={isExtending}
               now={state?.now}
+              selectedApp={selectedApp}
+              onResetFilter={() => setSelectedApp("all")}
+              loading={isLoading}
             />
           </div>
         )}
@@ -434,9 +533,12 @@ export const App: React.FC = () => {
         {activeTab === "onboarding" && (
           <OnboardingWizard
             team={state?.team || null}
-            onRefresh={loadState}
+            onRefresh={() => {
+              loadState();
+              fetchOnboardingRequests().then(setOnboardingRequests).catch(() => {});
+            }}
             onboardingRequests={onboardingRequests}
-            isAdmin={selectedRole === "admin"}
+            isAdmin={isUserAdmin}
             userRole={authUser.role}
           />
         )}
@@ -462,8 +564,8 @@ export const App: React.FC = () => {
       <StrikeModal
         isOpen={isStrikeModalOpen}
         onClose={() => setIsStrikeModalOpen(false)}
-        apps={state?.apps || ["full-stack-application"]}
-        defaultApp={state?.default_app || "full-stack-application"}
+        apps={availableApps}
+        defaultApp={selectedApp !== "all" ? selectedApp : (state?.default_app || "full-stack-application")}
         jira={state?.jira}
         onSuccess={loadState}
       />
