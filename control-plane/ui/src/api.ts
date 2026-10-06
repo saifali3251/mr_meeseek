@@ -155,7 +155,7 @@ export async function fetchOnboardingRequests(team?: string): Promise<Onboarding
     const adminRes = await fetch(`${BASE_URL}/ops/admin/onboarding/state`).catch(() => null);
     if (adminRes && adminRes.ok) {
       const data = await adminRes.json();
-      if (Array.isArray(data.requests) && data.requests.length > 0) {
+      if (Array.isArray(data.requests)) {
         return data.requests.map((r: any) => ({ ...r, id: r.request_id || r.id }));
       }
     }

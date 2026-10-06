@@ -178,7 +178,7 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
     def admin_state() -> dict:
         return {"manifest_fields": list(MANIFEST_FIELDS),
                "destructive_fields": list(DESTRUCTIVE_FIELDS),
-               "requests": [_req_dict(x) for x in svc.list_pending_approval()]}
+               "requests": [_req_dict(x) for x in svc.list_all()]}
 
     @r.post("/ops/admin/onboarding/requests/{request_id}/approve")
     def admin_approve(request_id: str) -> dict:

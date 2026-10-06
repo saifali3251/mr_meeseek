@@ -17,7 +17,9 @@ import {
   ExternalLink,
   Bot,
   HelpCircle,
-  XCircle
+  XCircle,
+  MessageSquare,
+  AlertTriangle
 } from "lucide-react";
 import { OnboardingRequest, Team, UserRole } from "../types";
 import { 
@@ -312,11 +314,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   };
 
   // Superadmin actions
-  const handleApprove = async (reqId: string) => {
+  const handleApprove = async (reqId: string, reqAppName?: string) => {
     setAdminActionLoading(reqId);
     try {
       await approveOnboardingRequest(reqId);
-      setSuccessMessage(`Application approved and published! Manifest generated in manifests/${appName}.sh.`);
+      setSuccessMessage(`Application "${reqAppName || appName || reqId}" approved and published! Golden manifest created.`);
       onRefresh();
     } catch (err: any) {
       alert(`Approval failed: ${err.message}`);
@@ -346,13 +348,192 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
   return (
     <div className="space-y-8">
-      {/* Onboarding Wizard Form Card */}
-      <div className="glass-panel rounded-2xl p-8 border border-meeseek-border shadow-xl">
-        <div className="flex items-center justify-between pb-6 border-b border-meeseek-border">
-          <div>
-            <span className="text-xs font-mono font-semibold uppercase text-cyan-400 tracking-wider">
-              Self-Serve Catalog Registration
+      {/* Applications Queue & Platform Review (Visible for Admins or when applications exist) */}
+      {(isAdmin || onboardingRequests.length > 0) && (
+        <div className="glass-panel rounded-2xl p-6 border border-meeseek-border shadow-xl">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h4 className="text-base font-bold text-white flex items-center space-x-2">
+                {isAdmin ? <ShieldCheck className="w-4 h-4 text-purple-400" /> : <Layers className="w-4 h-4 text-cyan-400" />}
+                <span>{isAdmin ? "Platform Onboarding Review Queue" : "Your Team's Onboarded Applications"}</span>
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {isAdmin
+                  ? "Applications awaiting preflight certification, trial verification, and golden image publishing"
+                  : "Track registration status, preflight certification, and golden image publishing"}
+              </p>
+            </div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-purple-500/10 text-purple-400 border border-purple-500/30 font-semibold">
+              {onboardingRequests.length} Applications
             </span>
+          </div>
+
+          {onboardingRequests.length === 0 ? (
+            <div className="p-8 text-center bg-meeseek-950/40 rounded-xl border border-slate-800/80 text-xs text-slate-500">
+              No applications waiting for platform review.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-meeseek-950 text-slate-400 uppercase font-mono text-[10px] tracking-wider border-b border-meeseek-border">
+                  <tr>
+                    <th className="py-2.5 px-4">Application</th>
+                    <th className="py-2.5 px-4">Team</th>
+                    <th className="py-2.5 px-4">Jira Board</th>
+                    <th className="py-2.5 px-4">Repositories</th>
+                    <th className="py-2.5 px-4">Status</th>
+                    <th className="py-2.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {onboardingRequests.map((req) => {
+                    const reqId: string = (req.request_id || req.id || "").toString();
+                    if (!reqId) return null;
+                    const isBusy = adminActionLoading === reqId;
+                    return (
+                      <tr key={reqId} className="hover:bg-meeseek-900/40">
+                        <td className="py-3 px-4 font-bold text-white">
+                          <div className="flex items-center space-x-1.5">
+                            <span>{req.app_name}</span>
+                          </div>
+                          {req.reject_reason && (
+                            <div className="mt-1.5 p-1.5 rounded bg-amber-950/40 border border-amber-500/30 text-[11px] font-mono text-amber-300">
+                              <span className="text-amber-400 font-semibold block text-[10px] uppercase tracking-wide">Reviewer Feedback:</span>
+                              <span>{req.reject_reason}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-300 font-mono">{req.team_slug}</td>
+                        <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                          {req.jira_project ? (
+                            <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                              {req.jira_project}
+                            </span>
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                          {req.repos?.map((r) => r.name).join(", ") || "—"}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                            req.status === "published"
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : req.status === "pending_approval"
+                              ? "bg-purple-500/15 text-purple-300 border border-purple-500/30 font-semibold"
+                              : req.status === "trial_passed"
+                              ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                              : req.status === "rejected"
+                              ? "bg-red-500/15 text-red-300 border border-red-500/30"
+                              : "bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                          }`}>
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end space-x-1.5">
+                            {/* Run Trial Button */}
+                            <button
+                              onClick={() => handleRunTrial(reqId)}
+                              disabled={isBusy || isTrialing}
+                              className="px-2.5 py-1 rounded text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all disabled:opacity-50"
+                              title="Run preflight trial build"
+                            >
+                              Trial
+                            </button>
+
+                            {/* Approve & Publish Button (Superadmin Only) */}
+                            {req.status === "pending_approval" && (
+                              <button
+                                onClick={() => handleApprove(reqId, req.app_name)}
+                                disabled={isBusy || (userRole !== undefined && userRole !== "superadmin")}
+                                title={
+                                  userRole !== undefined && userRole !== "superadmin"
+                                    ? "Superadmin role required to publish applications"
+                                    : "Approve application and publish golden manifest"
+                                }
+                                className={`px-2.5 py-1 rounded text-[11px] font-medium transition-all ${
+                                  userRole === "superadmin" || userRole === undefined
+                                    ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+                                    : "bg-slate-800/40 text-slate-500 cursor-not-allowed"
+                                }`}
+                              >
+                                {isBusy ? "Publishing..." : "Approve & Publish"}
+                              </button>
+                            )}
+
+                            {/* Reject with Feedback Button */}
+                            {req.status === "pending_approval" && isAdmin && (
+                              <button
+                                onClick={() => setRejectingId(rejectingId === reqId ? null : reqId)}
+                                disabled={isBusy}
+                                className="px-2.5 py-1 rounded text-[11px] font-medium bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 transition-all flex items-center space-x-1"
+                                title="Reject application and provide actionable feedback to team"
+                              >
+                                <MessageSquare className="w-3 h-3 text-red-400" />
+                                <span>Reject with Feedback</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Rejection Reason Form */}
+                          {rejectingId === reqId && (
+                            <div className="mt-2 text-left bg-slate-950 p-3 rounded-xl border border-red-500/40 space-y-2.5 shadow-lg">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[11px] text-red-300 font-semibold flex items-center space-x-1.5">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                                  <span>Review Feedback & Change Request</span>
+                                </label>
+                                <span className="text-[10px] text-slate-500">Sent directly to team</span>
+                              </div>
+                              <textarea
+                                rows={2}
+                                value={rejectReason}
+                                onChange={(e) => setRejectReason(e.target.value)}
+                                placeholder="Explain what needs to be changed (e.g. Please add unit test command, or update port to 8000)..."
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
+                              />
+                              <div className="flex justify-end space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRejectingId(null);
+                                    setRejectReason("");
+                                  }}
+                                  className="px-2.5 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200 text-[10px]"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReject(reqId)}
+                                  className="px-3 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold shadow-md shadow-red-600/20"
+                                >
+                                  Confirm Rejection & Send Feedback
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Onboarding Wizard Form Card (Self-serve registration for engineering teams; hidden for platform superadmins) */}
+      {userRole !== "superadmin" && (
+        <div className="glass-panel rounded-2xl p-8 border border-meeseek-border shadow-xl">
+          <div className="flex items-center justify-between pb-6 border-b border-meeseek-border">
+            <div>
+              <span className="text-xs font-mono font-semibold uppercase text-cyan-400 tracking-wider">
+                Self-Serve Catalog Registration
+              </span>
             <h3 className="text-xl font-bold text-white mt-1">
               Onboard a New Microservice / Composite Application
             </h3>
@@ -412,6 +593,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           <div className="mt-6 p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
             <span>{successMessage}</span>
+          </div>
+        )}
+
+        {stagedRequest?.status === "rejected" && stagedRequest?.reject_reason && (
+          <div className="mt-6 p-4 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs flex items-center space-x-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <div>
+              <span className="font-bold uppercase tracking-wider text-[10px] text-amber-400 block">Review Feedback from Platform Superadmin</span>
+              <span className="mt-0.5 block">{stagedRequest.reject_reason}</span>
+            </div>
           </div>
         )}
 
@@ -788,7 +979,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                       <span>{isTrialing ? "Executing Trial Build..." : "Run Trial Dry Run"}</span>
                     </button>
 
-                    {activeTrialOutput && (
+                    {stagedRequest?.status === "trial_failed" && activeTrialOutput && (
                       <button
                         type="button"
                         onClick={askMrMeeseeksToDebug}
@@ -856,158 +1047,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           )}
         </form>
       </div>
-
-      {/* Admin Review Table (Platform Leads & Superadmins) */}
-      {isAdmin && (
-        <div className="glass-panel rounded-2xl p-6 border border-meeseek-border">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h4 className="text-base font-bold text-white">Platform Onboarding Review Queue</h4>
-              <p className="text-xs text-slate-400">
-                Applications awaiting preflight certification, trial verification, and golden image publishing
-              </p>
-            </div>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-purple-500/10 text-purple-400 border border-purple-500/30 font-semibold">
-              {onboardingRequests.length} Applications
-            </span>
-          </div>
-
-          {onboardingRequests.length === 0 ? (
-            <div className="p-8 text-center bg-meeseek-950/40 rounded-xl border border-slate-800/80 text-xs text-slate-500">
-              No applications waiting for platform review.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-meeseek-950 text-slate-400 uppercase font-mono text-[10px] tracking-wider border-b border-meeseek-border">
-                  <tr>
-                    <th className="py-2.5 px-4">Application</th>
-                    <th className="py-2.5 px-4">Team</th>
-                    <th className="py-2.5 px-4">Jira Board</th>
-                    <th className="py-2.5 px-4">Repositories</th>
-                    <th className="py-2.5 px-4">Status</th>
-                    <th className="py-2.5 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {onboardingRequests.map((req) => {
-                    const reqId: string = (req.request_id || req.id || "").toString();
-                    if (!reqId) return null;
-                    const isBusy = adminActionLoading === reqId;
-                    return (
-                      <tr key={reqId} className="hover:bg-meeseek-900/40">
-                        <td className="py-3 px-4 font-bold text-white">{req.app_name}</td>
-                        <td className="py-3 px-4 text-slate-300 font-mono">{req.team_slug}</td>
-                        <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
-                          {req.jira_project ? (
-                            <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                              {req.jira_project}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
-                          {req.repos?.map((r) => r.name).join(", ") || "—"}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                            req.status === "published"
-                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                              : req.status === "pending_approval"
-                              ? "bg-purple-500/15 text-purple-300 border border-purple-500/30 font-semibold"
-                              : req.status === "trial_passed"
-                              ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-                              : req.status === "rejected"
-                              ? "bg-red-500/15 text-red-300 border border-red-500/30"
-                              : "bg-amber-500/10 text-amber-300 border border-amber-500/30"
-                          }`}>
-                            {req.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end space-x-1.5">
-                            {/* Run Trial Button */}
-                            <button
-                              onClick={() => handleRunTrial(reqId)}
-                              disabled={isBusy || isTrialing}
-                              className="px-2.5 py-1 rounded text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all disabled:opacity-50"
-                              title="Run preflight trial build"
-                            >
-                              Trial
-                            </button>
-
-                            {/* Approve & Publish Button (Superadmin Only) */}
-                            {req.status === "pending_approval" && (
-                              <button
-                                onClick={() => handleApprove(reqId)}
-                                disabled={isBusy || (userRole !== undefined && userRole !== "superadmin")}
-                                title={
-                                  userRole !== undefined && userRole !== "superadmin"
-                                    ? "Superadmin role required to publish applications"
-                                    : "Approve application and publish golden manifest"
-                                }
-                                className={`px-2.5 py-1 rounded text-[11px] font-medium transition-all ${
-                                  userRole === "superadmin" || userRole === undefined
-                                    ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
-                                    : "bg-slate-800/40 text-slate-500 cursor-not-allowed"
-                                }`}
-                              >
-                                {isBusy ? "Publishing..." : "Approve & Publish"}
-                              </button>
-                            )}
-
-                            {/* Reject Button */}
-                            {req.status === "pending_approval" && (
-                              <button
-                                onClick={() => setRejectingId(rejectingId === reqId ? null : reqId)}
-                                disabled={isBusy}
-                                className="px-2 py-1 rounded text-[11px] font-medium bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 transition-all"
-                              >
-                                Reject
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Rejection Reason Form */}
-                          {rejectingId === reqId && (
-                            <div className="mt-2 text-left bg-slate-950 p-3 rounded-lg border border-red-500/30 space-y-2">
-                              <label className="text-[10px] text-slate-400 block">Feedback / Reason for rejection:</label>
-                              <input
-                                type="text"
-                                value={rejectReason}
-                                onChange={(e) => setRejectReason(e.target.value)}
-                                placeholder="e.g. Please update test command to include lint checks"
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white"
-                              />
-                              <div className="flex justify-end space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setRejectingId(null)}
-                                  className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px]"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleReject(reqId)}
-                                  className="px-2.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold"
-                                >
-                                  Confirm Rejection
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+    )}
+  </div>
+);
 };
