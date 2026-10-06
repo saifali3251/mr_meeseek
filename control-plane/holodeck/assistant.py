@@ -67,6 +67,11 @@ Applications are defined in `manifests/<app>.sh`:
 - `HOLO_TEST_CMD`: The non-negotiable verification test suite run by Host Notary (e.g. `npm run lint && npx tsc -b`, `PYTHONPATH=. pytest tests/`).
 - `HOLO_SEED_SCRIPT`: Script executed during Golden Build to populate the database with warm fixtures.
 - Golden Sync: Automatically triggers a golden build rebuild when commits are pushed to the GitHub repository via webhooks.
+
+## 6. Onboarding & Trial Failure Debugging
+- Engineering teams can register microservices and composite applications via the Onboarding Wizard.
+- Before publishing, an in-wizard Trial Dry-Run builds the golden stack and verifies the Host Notary test command (`HOLO_TEST_CMD`).
+- If a user asks about a failed trial build, analyze the `trial_error` and `trial_log_tail` from `onboarding_pipeline`. Clearly explain the root cause (e.g. missing import, wrong test path, port mismatch) and give concise recommendations.
 """
 
 def _sanitize_traceback(output: Optional[str], max_lines: int = 100) -> str:
@@ -179,6 +184,18 @@ class MeeseekAssistant:
             },
             "active_workspaces": active_workspaces,
             "recent_notary_failures": recent_failures,
+            "onboarding_pipeline": [
+                {
+                    "request_id": req.get("request_id") or req.get("id"),
+                    "app_name": req.get("app_name"),
+                    "team": req.get("team_slug"),
+                    "status": req.get("status"),
+                    "trial_error": req.get("trial_error"),
+                    "trial_log_tail": _sanitize_traceback(req.get("trial_log"), max_lines=40),
+                }
+                for req in (state_snapshot.get("onboarding_requests") or [])
+                if isinstance(req, dict)
+            ],
         }
 
         return json.dumps(context_data, indent=2)

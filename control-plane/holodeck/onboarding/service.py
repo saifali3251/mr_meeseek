@@ -51,7 +51,9 @@ class OnboardingService:
     # ---- create + recon ----
 
     def create(self, team_slug: str, app_name: str, contact: str,
-              repos: list[RepoSpec]) -> OnboardingRequest:
+              repos: list[RepoSpec], jira_project: Optional[str] = None,
+              test_cmd: Optional[str] = None,
+              preview_port: Optional[str] = None) -> OnboardingRequest:
         if self.teams.get(team_slug) is None:
             raise ValueError(f"unknown team '{team_slug}' — create the team first")
         if not TICKET_RE.match(app_name):
@@ -60,8 +62,23 @@ class OnboardingService:
             raise OnboardingConflict(f"'{app_name}' is already a published app")
         if not repos:
             raise ValueError("at least one repo is required")
+
+        # Auto-infer preview_port if not supplied: 3000 for frontend/gateway, 8000 for backend
+        if not preview_port:
+            has_frontend = any(r.role in ("frontend", "gateway") for r in repos)
+            preview_port = "3000" if has_frontend else "8000"
+
+        # Auto-infer primary test_cmd if not supplied
+        if not test_cmd:
+            for r in repos:
+                if r.test_cmd:
+                    test_cmd = r.test_cmd
+                    break
+
         req = OnboardingRequest(request_id=new_request_id(), team_slug=team_slug,
-                                app_name=app_name, contact=contact, repos=repos)
+                                app_name=app_name, contact=contact, repos=repos,
+                                jira_project=jira_project, test_cmd=test_cmd,
+                                preview_port=preview_port)
         self.store.put(req)
         self._run_recon(req)
         return req
@@ -94,6 +111,9 @@ class OnboardingService:
 
     def list_for_team(self, team_slug: str) -> list[OnboardingRequest]:
         return self.store.list_for_team(team_slug)
+
+    def list_all(self) -> list[OnboardingRequest]:
+        return self.store.list_all()
 
     def list_pending_approval(self) -> list[OnboardingRequest]:
         return self.store.list_by_status(OnboardingStatus.PENDING_APPROVAL)

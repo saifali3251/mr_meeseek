@@ -89,6 +89,18 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
   };
 
   useEffect(() => {
+    const handleAsk = (e: any) => {
+      const prompt = e.detail?.prompt;
+      if (prompt) {
+        setIsOpen(true);
+        setInput(prompt);
+      }
+    };
+    window.addEventListener("meeseek:ask", handleAsk);
+    return () => window.removeEventListener("meeseek:ask", handleAsk);
+  }, []);
+
+  useEffect(() => {
     if (isOpen) {
       scrollToBottom();
       setTimeout(() => inputRef.current?.focus(), 150);

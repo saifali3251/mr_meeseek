@@ -33,6 +33,7 @@ class RepoSpecIn(BaseModel):
     url: str
     branch: str = "main"
     role: str = "app"
+    test_cmd: Optional[str] = None
     depends_on: list[str] = Field(default_factory=list)
     via: Optional[str] = None
     env_var: Optional[str] = None
@@ -41,7 +42,16 @@ class RepoSpecIn(BaseModel):
 class NewRequestBody(BaseModel):
     app_name: str
     contact: str = ""
+    team_slug: Optional[str] = None
+    jira_project: Optional[str] = None
+    test_cmd: Optional[str] = None
+    preview_port: Optional[str] = None
     repos: list[RepoSpecIn]
+
+
+class ValidateRepoBody(BaseModel):
+    url: str
+    branch: str = "main"
 
 
 class FieldEdits(BaseModel):
@@ -79,6 +89,11 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
             raise HTTPException(403, "not your team's request")
         return req
 
+    @r.post("/ops/onboard/validate-repo")
+    def onboard_validate_repo(body: ValidateRepoBody) -> dict:
+        from holodeck.onboarding.git_validator import validate_git_repo
+        return validate_git_repo(body.url, body.branch)
+
     @r.get("/ops/onboard", response_class=HTMLResponse, include_in_schema=False)
     def onboard_page() -> str:
         return _WIZARD_PAGE
@@ -93,10 +108,31 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
 
     @r.post("/ops/onboard/requests")
     def onboard_create(body: NewRequestBody, request: Request, response: Response) -> dict:
-        team = _team_or_403(request, response)
+        team = resolve_team(request, teams)
+        target_slug = (team.slug if team else (body.team_slug or "core")).strip().lower()
+        if team is None:
+            team = teams.get(target_slug)
+            if team is None:
+                try:
+                    team = teams.create(target_slug.replace("-", " ").title(), contact=body.contact or "", slug=target_slug)
+                except Exception:
+                    team = None
+        if team is None:
+            team = _team_or_403(request, response)
+        else:
+            set_team_cookies(response, team)
         try:
-            req = svc.create(team.slug, body.app_name, body.contact,
-                             [RepoSpec(**x.model_dump()) for x in body.repos])
+            req = svc.create(target_slug, body.app_name, body.contact,
+                             [RepoSpec(**x.model_dump()) for x in body.repos],
+                             jira_project=body.jira_project,
+                             test_cmd=body.test_cmd,
+                             preview_port=body.preview_port)
+            if body.test_cmd:
+                req.manifest["HOLO_TEST_CMD"] = ManifestField(value=body.test_cmd, source="user_input", confidence="high")
+            if body.preview_port:
+                req.manifest["HOLO_APP_PORT"] = ManifestField(value=str(body.preview_port), source="user_input", confidence="high")
+            if body.test_cmd or body.preview_port:
+                svc.store.put(req)
         except OnboardingConflict as e:
             raise HTTPException(409, str(e))
         except ValueError as e:
