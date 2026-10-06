@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from holodeck.onboarding.models import (DESTRUCTIVE_FIELDS, MANIFEST_FIELDS,
-                                        OnboardingRequest, RepoSpec)
+                                        ManifestField, OnboardingRequest, RepoSpec)
 from holodeck.onboarding.service import (OnboardingConflict, OnboardingNotFound,
                                          OnboardingService)
 from holodeck.teams import Team, TeamStore, resolve_team, set_team_cookies

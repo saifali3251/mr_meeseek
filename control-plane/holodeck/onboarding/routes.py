@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from holodeck.config import Config
-from holodeck.onboarding.models import OnboardingRequest, RepoSpec
+from holodeck.onboarding.models import ManifestField, OnboardingRequest, RepoSpec
 from holodeck.onboarding.service import (OnboardingConflict, OnboardingNotFound,
                                          OnboardingService)
 
