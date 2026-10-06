@@ -160,4 +160,15 @@ def build_onboarding_api_router(svc: OnboardingService, cfg: Config) -> APIRoute
         except OnboardingConflict as e:
             raise HTTPException(409, str(e))
 
+    @router.delete("/requests/{request_id}", dependencies=[Depends(auth)])
+    @router.delete("/admin/requests/{request_id}", dependencies=[Depends(auth)])
+    def delete_request(request_id: str) -> dict:
+        try:
+            req = svc.delete(request_id)
+            return {"ok": True, "request_id": request_id, "app_name": req.app_name}
+        except OnboardingNotFound:
+            raise HTTPException(404, "no such onboarding request")
+        except OnboardingConflict as e:
+            raise HTTPException(409, str(e))
+
     return router

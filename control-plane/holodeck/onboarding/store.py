@@ -103,3 +103,17 @@ class OnboardingStore:
             "SELECT * FROM onboarding_requests ORDER BY created_at DESC"
         )
         return [_from_row(r) for r in rows]
+
+    def delete(self, request_id: str) -> bool:
+        self.db.execute("DELETE FROM onboarding_requests WHERE request_id=?", (request_id,))
+        return True
+
+    def count_active_leases_for_app(self, app_name: str) -> int:
+        try:
+            rows = self.db.query(
+                "SELECT count(*) as cnt FROM leases WHERE app=? AND status IN ('ready', 'striking', 'allocated')",
+                (app_name,)
+            )
+            return int(rows[0]["cnt"]) if rows else 0
+        except Exception:
+            return 0

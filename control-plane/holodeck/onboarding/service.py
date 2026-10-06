@@ -186,3 +186,42 @@ class OnboardingService:
         req.reject_reason = reason
         self.store.put(req)
         return req
+
+    def delete(self, request_id: str) -> OnboardingRequest:
+        import shutil
+        req = self.get(request_id)
+
+        # Guardrail for published applications
+        if req.status == OnboardingStatus.PUBLISHED:
+            active_leases = self.store.count_active_leases_for_app(req.app_name)
+            if active_leases > 0:
+                raise OnboardingConflict(
+                    f"Cannot delete published application '{req.app_name}': "
+                    f"{active_leases} active workspace(s) are currently running. Destroy them first."
+                )
+
+            # 1. Remove manifest file if it exists
+            manifest_file = self.manifests_dir / f"{req.app_name}.sh"
+            if manifest_file.exists():
+                try:
+                    manifest_file.unlink()
+                except Exception:
+                    pass
+
+            # 2. Unassign from team
+            try:
+                self.teams.unassign_app(req.app_name)
+            except Exception:
+                pass
+
+        # Clean up scratch workdir
+        req_workdir = self.workdir / req.request_id
+        if req_workdir.exists() and req_workdir.is_dir():
+            try:
+                shutil.rmtree(req_workdir)
+            except Exception:
+                pass
+
+        # Remove from database
+        self.store.delete(request_id)
+        return req

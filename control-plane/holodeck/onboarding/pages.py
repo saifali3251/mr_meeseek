@@ -168,6 +168,23 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
         except OnboardingConflict as e:
             raise HTTPException(409, str(e))
 
+    @r.delete("/ops/onboard/requests/{request_id}")
+    def onboard_delete(request_id: str, request: Request, response: Response) -> dict:
+        team = resolve_team(request, teams)
+        try:
+            req = svc.get(request_id)
+        except OnboardingNotFound:
+            raise HTTPException(404, "no such onboarding request")
+        if req.status.value == "published":
+            raise HTTPException(403, "Published applications can only be deleted by platform superadmins")
+        if team and req.team_slug != team.slug:
+            raise HTTPException(403, "not your team's request")
+        try:
+            req = svc.delete(request_id)
+            return {"ok": True, "request_id": request_id, "app_name": req.app_name}
+        except OnboardingConflict as e:
+            raise HTTPException(409, str(e))
+
     # ---- platform review — the last human gate before a manifest is real ----
 
     @r.get("/ops/admin/onboarding", response_class=HTMLResponse, include_in_schema=False)
@@ -193,6 +210,16 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
     def admin_reject(request_id: str, body: RejectBody) -> dict:
         try:
             return _req_dict(svc.reject(request_id, body.reason))
+        except OnboardingNotFound:
+            raise HTTPException(404, "no such onboarding request")
+        except OnboardingConflict as e:
+            raise HTTPException(409, str(e))
+
+    @r.delete("/ops/admin/onboarding/requests/{request_id}")
+    def admin_delete(request_id: str) -> dict:
+        try:
+            req = svc.delete(request_id)
+            return {"ok": True, "request_id": request_id, "app_name": req.app_name}
         except OnboardingNotFound:
             raise HTTPException(404, "no such onboarding request")
         except OnboardingConflict as e:

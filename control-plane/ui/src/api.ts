@@ -322,6 +322,42 @@ export async function submitOnboardingForReview(
   return res.json();
 }
 
+export async function deleteOnboardingRequest(
+  requestId: string,
+  isAdmin: boolean = false
+): Promise<any> {
+  const primaryUrl = isAdmin
+    ? `${BASE_URL}/ops/admin/onboarding/requests/${encodeURIComponent(requestId)}`
+    : `${BASE_URL}/ops/onboard/requests/${encodeURIComponent(requestId)}`;
+
+  let res = await fetch(primaryUrl, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!res.ok && (res.status === 404 || res.status === 405)) {
+    const fallbackUrl = isAdmin
+      ? `${BASE_URL}/ops/onboard/requests/${encodeURIComponent(requestId)}`
+      : `${BASE_URL}/ops/admin/onboarding/requests/${encodeURIComponent(requestId)}`;
+    res = await fetch(fallbackUrl, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok && (res.status === 404 || res.status === 405)) {
+      res = await fetch(`${BASE_URL}/onboarding/requests/${encodeURIComponent(requestId)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || err.error || `Failed to delete onboarding request (${res.status} ${res.statusText})`);
+  }
+  return res.json();
+}
+
 export async function triggerGoldenRebuild(app?: string): Promise<any> {
   const qs = app ? `?app=${encodeURIComponent(app)}&force=true` : `?force=true`;
   const res = await fetch(`${BASE_URL}/ops/golden/rebuild${qs}`, {
