@@ -84,6 +84,34 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
     );
   };
 
+  // Open the first workspace once data arrives after the initial load
+  React.useEffect(() => {
+    if (!expandedLeaseId && leases.length > 0) setExpandedLeaseId(leases[0].lease_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leases.length]);
+
+  // Still waiting for the first state fetch: don't flash the empty "summon" state
+  if (loading && leases.length === 0) {
+    return (
+      <div className="glass-panel rounded-2xl border border-meeseek-border overflow-hidden" aria-busy="true" aria-label="Loading workspaces">
+        <div className="px-6 py-5 border-b border-meeseek-border flex items-center justify-between">
+          <div className="mee-skel h-5 w-48 rounded-md" />
+          <div className="mee-skel h-8 w-28 rounded-full" />
+        </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="px-6 py-4 border-b border-meeseek-border/60 flex items-center gap-4" style={{ opacity: 1 - i * 0.25 }}>
+            <div className="mee-skel h-9 w-9 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <div className="mee-skel h-3.5 w-1/3 rounded" />
+              <div className="mee-skel h-3 w-1/2 rounded" />
+            </div>
+            <div className="mee-skel h-7 w-20 rounded-full" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (leases.length === 0) {
     return (
       <div className="glass-panel rounded-2xl p-12 text-center border border-meeseek-border">
