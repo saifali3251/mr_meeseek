@@ -207,8 +207,8 @@ export async function createOnboardingRequest(data: {
     body: JSON.stringify(data),
   });
 
-  if (!res.ok) {
-    // Fallback to /onboarding/requests
+  if (!res.ok && res.status === 404) {
+    // Fallback to /onboarding/requests only if route not found
     res = await fetch(`${BASE_URL}/onboarding/requests`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -235,7 +235,7 @@ export async function approveOnboardingRequest(
     headers,
   });
 
-  if (!res.ok) {
+  if (!res.ok && res.status === 404) {
     res = await fetch(`${BASE_URL}/onboarding/admin/requests/${encodeURIComponent(requestId)}/approve`, {
       method: "POST",
       headers,
@@ -263,7 +263,7 @@ export async function rejectOnboardingRequest(
     body: JSON.stringify({ reason }),
   });
 
-  if (!res.ok) {
+  if (!res.ok && res.status === 404) {
     res = await fetch(`${BASE_URL}/onboarding/admin/requests/${encodeURIComponent(requestId)}/reject`, {
       method: "POST",
       headers,
@@ -286,7 +286,7 @@ export async function triggerTrialRun(
     headers: { "Content-Type": "application/json" },
   });
 
-  if (!res.ok) {
+  if (!res.ok && res.status === 404) {
     res = await fetch(`${BASE_URL}/onboarding/requests/${encodeURIComponent(requestId)}/trial`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -295,7 +295,7 @@ export async function triggerTrialRun(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to execute trial build");
+    throw new Error(err.detail || err.error || `Trial failed with status ${res.status}`);
   }
   return res.json();
 }
@@ -308,7 +308,7 @@ export async function submitOnboardingForReview(
     headers: { "Content-Type": "application/json" },
   });
 
-  if (!res.ok) {
+  if (!res.ok && res.status === 404) {
     res = await fetch(`${BASE_URL}/onboarding/requests/${encodeURIComponent(requestId)}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -317,7 +317,7 @@ export async function submitOnboardingForReview(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to submit request for review");
+    throw new Error(err.detail || err.error || "Failed to submit request for review");
   }
   return res.json();
 }

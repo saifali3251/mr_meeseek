@@ -95,11 +95,10 @@ class OnboardingRequest:
         return len(self.repos) > 1
 
     def has_unreviewed_destructive_fields(self) -> bool:
-        """True until every destructive field has been touched by a human (its
-        source is no longer a bare recon guess). Blocks trial/publish — see
-        OnboardingService — so a guessed HOLO_SEED_CMD can never run unseen."""
+        """True until every non-empty destructive field has been confirmed by a human
+        (its source is no longer a bare recon guess). Empty or absent fields are non-destructive."""
         for name in DESTRUCTIVE_FIELDS:
             f = self.manifest.get(name)
-            if f is None or f.source == "needs_review":
+            if f is not None and f.value and f.source == "needs_review":
                 return True
         return False

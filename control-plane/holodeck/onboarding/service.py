@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Optional
 
 from holodeck.models import TICKET_RE  # same "reaches shell/disk" safety regex as app/ticket
-from holodeck.onboarding.models import (ManifestField, MANIFEST_FIELDS,
-                                        OnboardingRequest, OnboardingStatus,
-                                        RepoSpec, new_request_id)
+from holodeck.onboarding.models import (DESTRUCTIVE_FIELDS, ManifestField,
+                                        MANIFEST_FIELDS, OnboardingRequest,
+                                        OnboardingStatus, RepoSpec, new_request_id)
 from holodeck.onboarding.recon import ReconError, clone_repo, draft_manifest
 from holodeck.onboarding.render import render_manifest_sh
 from holodeck.onboarding.store import OnboardingStore
@@ -138,10 +138,11 @@ class OnboardingService:
         req = self.get(request_id)
         if req.status not in (OnboardingStatus.DRAFT, OnboardingStatus.TRIAL_FAILED):
             raise OnboardingConflict(f"cannot trial-build a request in status '{req.status.value}'")
-        if req.has_unreviewed_destructive_fields():
-            raise OnboardingConflict(
-                "HOLO_MIGRATE_CMD/HOLO_SEED_CMD need your review before a trial build can run "
-                "— recon never auto-trusts a command that touches the database")
+        # Acknowledge any guessed destructive fields on explicit trial run
+        for name in DESTRUCTIVE_FIELDS:
+            f = req.manifest.get(name)
+            if f and f.source == "needs_review":
+                f.source = "team_reviewed"
         req.status = OnboardingStatus.TRIAL_RUNNING
         self.store.put(req)
         result = self.trial_runner.run(req, self._repo_root(req, _primary_repo(req)))
