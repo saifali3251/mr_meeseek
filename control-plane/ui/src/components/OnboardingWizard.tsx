@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   Plus, 
   Trash2,
@@ -380,25 +380,33 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     }
   };
 
+  // Superadmin only reviews applications that have been submitted for approval
+  const visibleRequests = useMemo(() => {
+    if (userRole === "superadmin") {
+      return onboardingRequests.filter((r) => r.status === "pending_approval");
+    }
+    return onboardingRequests;
+  }, [onboardingRequests, userRole]);
+
   return (
     <div className="space-y-8">
       {/* Applications Queue & Platform Review (Visible for Admins or when applications exist) */}
-      {(isAdmin || onboardingRequests.length > 0) && (
+      {(isAdmin || visibleRequests.length > 0) && (
         <div className="glass-panel rounded-2xl p-6 border border-meeseek-border shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h4 className="text-base font-bold text-white flex items-center space-x-2">
-                {isAdmin ? <ShieldCheck className="w-4 h-4 text-purple-400" /> : <Layers className="w-4 h-4 text-cyan-400" />}
-                <span>{isAdmin ? "Platform Onboarding Review Queue" : "Your Team's Onboarded Applications"}</span>
+                {userRole === "superadmin" ? <ShieldCheck className="w-4 h-4 text-purple-400" /> : <Layers className="w-4 h-4 text-cyan-400" />}
+                <span>{userRole === "superadmin" ? "Platform Onboarding Review Queue" : "Your Team's Onboarded Applications"}</span>
               </h4>
               <p className="text-xs text-slate-400 mt-0.5">
-                {isAdmin
-                  ? "Applications awaiting preflight certification, trial verification, and golden image publishing"
+                {userRole === "superadmin"
+                  ? "Applications submitted by teams awaiting preflight certification, review, and golden image publishing"
                   : "Track registration status, preflight certification, and golden image publishing"}
               </p>
             </div>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-purple-500/10 text-purple-400 border border-purple-500/30 font-semibold">
-              {onboardingRequests.length} Applications
+              {visibleRequests.length} {userRole === "superadmin" ? "Awaiting Review" : "Applications"}
             </span>
           </div>
 
@@ -435,9 +443,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             </div>
           )}
 
-          {onboardingRequests.length === 0 ? (
+          {visibleRequests.length === 0 ? (
             <div className="p-8 text-center bg-meeseek-950/40 rounded-xl border border-slate-800/80 text-xs text-slate-500">
-              No applications waiting for platform review.
+              {userRole === "superadmin"
+                ? "No applications currently awaiting platform review."
+                : "No onboarded applications found for your team."}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -453,7 +463,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {onboardingRequests.map((req) => {
+                  {visibleRequests.map((req) => {
                     const reqId: string = (req.request_id || req.id || "").toString();
                     if (!reqId) return null;
                     const isBusy = adminActionLoading === reqId;
@@ -500,8 +510,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1.5">
-                            {/* Run Trial Button (Only for in-progress / unapproved requests) */}
-                            {req.status !== "published" && req.status !== "pending_approval" && (
+                            {/* Run Trial Button (Teams only, for in-progress / unapproved requests) */}
+                            {userRole !== "superadmin" && req.status !== "published" && req.status !== "pending_approval" && (
                               <button
                                 onClick={() => handleRunTrial(reqId)}
                                 disabled={isBusy || isTrialing}
@@ -532,8 +542,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                               </button>
                             )}
 
-                            {/* Reject with Feedback Button */}
-                            {req.status === "pending_approval" && isAdmin && (
+                            {/* Reject with Feedback Button (Superadmin Only) */}
+                            {req.status === "pending_approval" && (userRole === "superadmin" || isAdmin) && (
                               <button
                                 onClick={() => setRejectingId(rejectingId === reqId ? null : reqId)}
                                 disabled={isBusy}
@@ -545,17 +555,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                               </button>
                             )}
 
-                            {/* Delete / De-provision Button */}
-                            {(req.status !== "published" || userRole === "superadmin" || isAdmin) && (
+                            {/* Delete Button (Teams only — Superadmin manages review & feedback flow) */}
+                            {userRole !== "superadmin" && (
                               <button
                                 onClick={() => handleDelete(reqId, req.app_name, req.status === "published")}
                                 disabled={isBusy}
                                 className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-950/40 border border-transparent hover:border-red-500/30 transition-all disabled:opacity-50"
-                                title={
-                                  req.status === "published"
-                                    ? "De-provision and delete published application manifest"
-                                    : "Delete application onboarding request"
-                                }
+                                title="Delete application onboarding request"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
