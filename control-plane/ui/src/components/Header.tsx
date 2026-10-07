@@ -44,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
               <p className="text-[13px] text-slate-400 font-medium mt-0.5">
-                Summoned for one ticket &middot; gone when it's done
+                Summoned for one task &middot; gone when it's done
               </p>
             </div>
           </a>
