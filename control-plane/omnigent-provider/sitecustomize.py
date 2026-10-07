@@ -57,7 +57,7 @@ def _install_holodeck_managed() -> None:
     def _parse(raw):
         cfg = raw if isinstance(raw, dict) else None
         provider = (cfg or {}).get("provider") or os.environ.get("OMNIGENT_SANDBOX_PROVIDER")
-        if provider == "holodeck":
+        if provider in ("holodeck", "meeseek"):
             server_url = (
                 (cfg or {}).get("server_url")
                 or os.environ.get("OMNIGENT_SANDBOX_SERVER_URL")
@@ -65,7 +65,7 @@ def _install_holodeck_managed() -> None:
             )
             if not server_url or not str(server_url).strip():
                 raise ValueError(
-                    "holodeck managed sandbox needs a server_url "
+                    "meeseek managed sandbox needs a server_url "
                     "(sandbox.server_url, OMNIGENT_SANDBOX_SERVER_URL, or OMNIGENT_SERVER_URL) "
                     "— the public URL the provisioned workspace dials back to"
                 )
@@ -74,7 +74,7 @@ def _install_holodeck_managed() -> None:
                 launcher_factory=lambda: HolodeckSandboxLauncher(),
                 token_ttl_s=_HOLODECK_TOKEN_TTL_S,
                 managed_launch_supported=True,
-                provider="holodeck",
+                provider="meeseek",
                 host_config=(cfg or {}).get("host_config"),
             )
         return _orig(raw)

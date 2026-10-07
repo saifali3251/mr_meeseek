@@ -9,12 +9,17 @@ from omnigent.onboarding.sandboxes.registry import (SandboxProviderContribution,
 
 
 def get_contribution() -> SandboxProviderContribution:
+    launcher = "omnigent.community.sandbox.holodeck.launcher:HolodeckSandboxLauncher"
     return SandboxProviderContribution(
-        name="omnigent-community-sandbox-holodeck",
+        name="omnigent-community-sandbox-meeseek",
         providers={
             "holodeck": SandboxProviderMetadata(
                 name="holodeck",
-                launcher_class="omnigent.community.sandbox.holodeck.launcher:HolodeckSandboxLauncher",
-            )
+                launcher_class=launcher,
+            ),
+            "meeseek": SandboxProviderMetadata(
+                name="meeseek",
+                launcher_class=launcher,
+            ),
         },
     )

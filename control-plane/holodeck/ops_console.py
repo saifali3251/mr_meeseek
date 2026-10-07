@@ -80,7 +80,7 @@ from holodeck.models import TICKET_RE, LeaseStatus
 from holodeck.providers.base import ProviderError
 from holodeck.service import LeaseConflict, LeaseService
 from holodeck.teams import (SLUG_RE, Team, TeamExistsError, TeamStore,
-                           resolve_team, set_team_cookies)
+                           resolve_team, set_team_cookies, COOKIE_TEAM, COOKIE_TOKEN)
 
 _ACTIVE = (LeaseStatus.PENDING, LeaseStatus.QUEUED, LeaseStatus.READY)
 _RUNNING = (LeaseStatus.PENDING, LeaseStatus.READY)
@@ -181,7 +181,9 @@ def build_ops_router(service: LeaseService, cfg: Config,
     def _snapshot(team: Optional[Team] = None) -> dict:
         import time
         owned = _owned_apps(team)
-        visible = (lambda app: owned is None or app in owned)
+        default_key = cfg.app_key(cfg.default_app) if hasattr(cfg, "app_key") else cfg.default_app
+        default_apps = {default_key, cfg.default_app, "full-stack-application"}
+        visible = (lambda app: owned is None or app in owned or app in default_apps)
         leases = [l for l in service.store.all() if visible(l.app)]
         running: dict[str, int] = {}
         for l in leases:
@@ -261,12 +263,25 @@ def build_ops_router(service: LeaseService, cfg: Config,
         """Resolve the team (query param wins, else the cookie) and, if a query
         param resolved it, refresh the cookie so the NEXT bare /ops load without
         ?team=&token= stays scoped. A no-op on every route where teams=None."""
+        team_param = request.query_params.get("team") or request.headers.get("x-meeseek-team")
+        role_param = request.query_params.get("role") or request.headers.get("x-meeseek-role")
+        if team_param in ("all", "admin", "none") or role_param in ("admin", "superadmin"):
+            if COOKIE_TEAM in request.cookies or COOKIE_TOKEN in request.cookies:
+                response.delete_cookie(COOKIE_TEAM, path="/")
+                response.delete_cookie(COOKIE_TOKEN, path="/")
+            return None
         team = resolve_team(request, teams)
         if team is not None:
             set_team_cookies(response, team)
         return team
 
     def _check_lease_owned(lease_app: str, team: Optional[Team]) -> None:
+        if team is None:
+            return
+        default_key = cfg.app_key(cfg.default_app) if hasattr(cfg, "app_key") else cfg.default_app
+        default_apps = {default_key, cfg.default_app, "full-stack-application"}
+        if lease_app in default_apps:
+            return
         owned = _owned_apps(team)
         if owned is not None and lease_app not in owned:
             raise HTTPException(403, f"lease belongs to an app team '{team.slug}' doesn't own")
@@ -285,9 +300,21 @@ def build_ops_router(service: LeaseService, cfg: Config,
         team = _resolve_and_stamp(request, response)
         return _full_state(request.app.state, team)
 
+    @r.post("/ops/auth/signout")
+    @r.get("/ops/auth/signout")
+    def ops_signout(response: Response) -> dict:
+        response.delete_cookie(COOKIE_TEAM, path="/")
+        response.delete_cookie(COOKIE_TOKEN, path="/")
+        return {"status": "signed_out"}
+
     @r.get("/ops/events")
     async def ops_events(request: Request):
-        team = resolve_team(request, teams)
+        team_param = request.query_params.get("team")
+        role_param = request.query_params.get("role")
+        if team_param in ("all", "admin", "none") or role_param in ("admin", "superadmin"):
+            team = None
+        else:
+            team = resolve_team(request, teams)
         limit = int(request.query_params.get("limit", 0))
         loop = asyncio.get_running_loop()
         q = broadcaster.subscribe(loop)

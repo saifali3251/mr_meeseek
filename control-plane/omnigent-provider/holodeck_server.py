@@ -47,11 +47,11 @@ def _install_holodeck_managed_provider() -> None:
     _orig = mh.parse_sandbox_config
 
     def _parse(raw):
-        if isinstance(raw, dict) and raw.get("provider") == "holodeck":
+        if isinstance(raw, dict) and raw.get("provider") in ("holodeck", "meeseek"):
             server_url = raw.get("server_url")
             if not isinstance(server_url, str) or not server_url.strip():
                 raise ValueError(
-                    "sandbox.server_url is required for the holodeck provider "
+                    "sandbox.server_url is required for the meeseek provider "
                     "(the public URL the provisioned workspace dials back to)"
                 )
             return mh.ManagedSandboxConfig(
@@ -59,7 +59,7 @@ def _install_holodeck_managed_provider() -> None:
                 launcher_factory=lambda: HolodeckSandboxLauncher(),
                 token_ttl_s=_HOLODECK_TOKEN_TTL_S,
                 managed_launch_supported=True,
-                provider="holodeck",
+                provider="meeseek",
                 host_config=raw.get("host_config"),
             )
         return _orig(raw)

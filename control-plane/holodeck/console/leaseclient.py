@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+import time
 from typing import Optional, Protocol, runtime_checkable
 
 from holodeck.models import holo_id
@@ -27,6 +28,7 @@ class LeaseClient(Protocol):
                 base_overrides: Optional[dict[str, str]] = None) -> dict: ...
     def get(self, lease_id: str) -> Optional[dict]: ...
     def release(self, lease_id: str) -> None: ...
+    def extend(self, lease_id: str, ttl_s: int = 1800) -> dict: ...
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
                  ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> dict:
         """agent_summary/ticket_summary/issue_type are cosmetic PR title/body
@@ -90,6 +92,12 @@ class HttpLeaseClient:
     def release(self, lease_id: str) -> None:
         self._req("DELETE", f"/leases/{lease_id}")
 
+    def extend(self, lease_id: str, ttl_s: int = 1800) -> dict:
+        status, body = self._req("POST", f"/leases/{lease_id}/extend", {"ttl_s": ttl_s})
+        if status != 200 or body is None:
+            raise LeaseClientError(f"extend failed for {lease_id!r} (HTTP {status})")
+        return body
+
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
                  ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> dict:
         # The notary: re-derives readiness/tests/diff host-side and (if
@@ -150,6 +158,15 @@ class FakeLeaseClient:
     def release(self, lease_id: str) -> None:
         if lease_id in self._leases:
             self._leases[lease_id]["status"] = "released"
+
+    def extend(self, lease_id: str, ttl_s: int = 1800) -> dict:
+        if lease_id not in self._leases:
+            raise LeaseClientError(f"extend failed for {lease_id!r} (HTTP 404)")
+        row = self._leases[lease_id]
+        now = time.time()
+        base = max(row.get("expires_at") or 0.0, now)
+        row["expires_at"] = base + ttl_s
+        return row
 
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
                  ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> dict:

@@ -1,6 +1,6 @@
 [project]
 name = "omnigent-community-sandbox-holodeck"
-version = "0.1.4"
+version = "0.1.6"
 description = "Holodeck sandbox provider for Omnigent — a lease on a warm, seeded app stack instead of a blank box."
 requires-python = ">=3.12"
 # No runtime deps beyond omnigent itself (provided by the host env) — the
@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 
 [project.entry-points."omnigent.sandbox_providers"]
 holodeck = "omnigent.community.sandbox.holodeck.plugin:get_contribution"
+meeseek = "omnigent.community.sandbox.holodeck.plugin:get_contribution"
 
 [build-system]
 requires = ["hatchling"]
