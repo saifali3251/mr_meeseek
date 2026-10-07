@@ -296,11 +296,13 @@ class JiraBridge:
             return self._answer(key, "no")
         if cmd.startswith("finalize"):
             return self._finalize(key)
+        if cmd.startswith("extend"):
+            return self._extend(key)
         if cmd.startswith(("stop", "release")):
             return self._release(key)
         self._say(
             key, f"Meeseek: unknown command `{cmd}`. "
-                 f"Try `{self.prefix} run | retry <text> | finalize | stop`.")
+                 f"Try `{self.prefix} run | retry <text> | finalize | extend | stop`.")
         return "unknown-command"
 
     def _start(self, key: str) -> str:
@@ -507,6 +509,19 @@ class JiraBridge:
             links.append(("Preview", rec.preview_url))
         self._say(key, body, links=links or None)
         return "finalized"
+
+    def _extend(self, key: str) -> str:
+        rec = self.manager.store.get(key)
+        if rec is None or not rec.lease_id:
+            self._say(key, "Meeseek: no active workspace found for this ticket to extend.")
+            return "not-found"
+        try:
+            self.manager.extend(key, ttl_s=1800)
+        except ConsoleError as e:
+            self._say(key, f"Meeseek: failed to extend workspace — {e}")
+            return "error"
+        self._say(key, "⏱️ **Meeseek**: Workspace lease extended by +30 minutes.")
+        return "extended"
 
     def _release(self, key: str) -> str:
         try:

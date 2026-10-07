@@ -420,6 +420,9 @@ class LeaseService:
                 guardrail_passed, getattr(evidence, "guardrail_reason", None),
                 evidence.test_output.strip() if evidence.test_output else "(no test output)")
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
+        now = time.time()
+        base = max(lease.expires_at or 0.0, now)
+        lease.expires_at = base + self.cfg.default_ttl_s
         self.store.put(lease)
         self._notify_change()
         return evidence
@@ -493,7 +496,9 @@ class LeaseService:
 
     def extend(self, lease_id: str, ttl_s: int) -> Lease:
         lease = self._require(lease_id)
-        lease.expires_at = time.time() + ttl_s
+        now = time.time()
+        base = max(lease.expires_at or 0.0, now)
+        lease.expires_at = base + ttl_s
         self.store.put(lease)
         self._notify_change()
         return lease

@@ -181,7 +181,9 @@ def build_ops_router(service: LeaseService, cfg: Config,
     def _snapshot(team: Optional[Team] = None) -> dict:
         import time
         owned = _owned_apps(team)
-        visible = (lambda app: owned is None or app in owned)
+        default_key = cfg.app_key(cfg.default_app) if hasattr(cfg, "app_key") else cfg.default_app
+        default_apps = {default_key, cfg.default_app, "full-stack-application"}
+        visible = (lambda app: owned is None or app in owned or app in default_apps)
         leases = [l for l in service.store.all() if visible(l.app)]
         running: dict[str, int] = {}
         for l in leases:
@@ -253,6 +255,10 @@ def build_ops_router(service: LeaseService, cfg: Config,
         """Resolve the team (query param wins, else the cookie) and, if a query
         param resolved it, refresh the cookie so the NEXT bare /ops load without
         ?team=&token= stays scoped. A no-op on every route where teams=None."""
+        team_param = request.query_params.get("team")
+        role_param = request.query_params.get("role")
+        if team_param in ("all", "admin", "none") or role_param in ("admin", "superadmin"):
+            return None
         team = resolve_team(request, teams)
         if team is not None:
             set_team_cookies(response, team)
@@ -279,7 +285,12 @@ def build_ops_router(service: LeaseService, cfg: Config,
 
     @r.get("/ops/events")
     async def ops_events(request: Request):
-        team = resolve_team(request, teams)
+        team_param = request.query_params.get("team")
+        role_param = request.query_params.get("role")
+        if team_param in ("all", "admin", "none") or role_param in ("admin", "superadmin"):
+            team = None
+        else:
+            team = resolve_team(request, teams)
         limit = int(request.query_params.get("limit", 0))
         loop = asyncio.get_running_loop()
         q = broadcaster.subscribe(loop)

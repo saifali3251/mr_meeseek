@@ -336,6 +336,20 @@ class ConsoleManager:
         self._notify_change()
         return rec, evidence
 
+    def extend(self, ticket: str, ttl_s: int = 1800) -> TaskRecord:
+        rec = self.store.get(ticket)
+        if rec is None:
+            raise ConsoleNotFound(f"no task {ticket!r}")
+        try:
+            self.client.extend(rec.lease_id, ttl_s=ttl_s)
+        except LeaseClientError as e:
+            raise ConsoleError(str(e))
+        rec.last_action = "extended"
+        rec.last_action_at = time.time()
+        self.store.put(rec)
+        self._notify_change()
+        return rec
+
     def release(self, ticket: str) -> TaskRecord:
         rec = self.store.get(ticket)
         if rec is None:

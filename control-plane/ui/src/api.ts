@@ -23,10 +23,12 @@ const EMPTY_OPS_STATE: OpsState = {
   },
 };
 
-export async function fetchOpsState(teamSlug?: string, token?: string): Promise<OpsState> {
+export async function fetchOpsState(teamSlug?: string, token?: string, role?: string): Promise<OpsState> {
   const params = new URLSearchParams();
   if (teamSlug) params.set("team", teamSlug);
+  else params.set("team", "all");
   if (token) params.set("token", token);
+  if (role) params.set("role", role);
   const qs = params.toString() ? `?${params.toString()}` : "";
   
   try {

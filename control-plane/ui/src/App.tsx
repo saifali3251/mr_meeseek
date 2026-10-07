@@ -43,7 +43,16 @@ export const App: React.FC = () => {
   });
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("workspaces");
-  const [selectedRole, setSelectedRole] = useState<Role>("team");
+  const [selectedRole, setSelectedRole] = useState<Role>(() => {
+    try {
+      const stored = localStorage.getItem("meeseek_auth_user");
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u.role === "admin" || u.role === "superadmin") return "admin";
+      }
+    } catch {}
+    return "team";
+  });
   const [state, setState] = useState<OpsState | null>(null);
   const [onboardingRequests, setOnboardingRequests] = useState<OnboardingRequest[]>([]);
   const [selectedLeaseId, setSelectedLeaseId] = useState<string | null>(null);
@@ -55,6 +64,11 @@ export const App: React.FC = () => {
 
   const handleLogin = (user: AuthUser) => {
     setAuthUser(user);
+    if (user.role === "admin" || user.role === "superadmin") {
+      setSelectedRole("admin");
+    } else {
+      setSelectedRole("team");
+    }
     try {
       localStorage.setItem("meeseek_auth_user", JSON.stringify(user));
     } catch (e) {
@@ -64,8 +78,11 @@ export const App: React.FC = () => {
 
   const handleSignOut = () => {
     setAuthUser(null);
+    setSelectedRole("team");
     try {
       localStorage.removeItem("meeseek_auth_user");
+      document.cookie = "holo_team=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = "holo_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     } catch (e) {
       console.error("Failed to clear auth user:", e);
     }
@@ -83,8 +100,12 @@ export const App: React.FC = () => {
   // Load ops state via one-shot fetch (used as immediate fetch or on explicit actions)
   const loadState = useCallback(async () => {
     try {
+      const isAdmin = selectedRole === "admin" || authUser?.role === "admin" || authUser?.role === "superadmin";
+      const teamSlug = !isAdmin && selectedRole === "team" && state?.team ? state.team.slug : undefined;
       const data = await fetchOpsState(
-        selectedRole === "team" && state?.team ? state.team.slug : undefined
+        teamSlug,
+        undefined,
+        isAdmin ? "admin" : undefined
       );
       setState(data);
       setLastUpdated(new Date().toLocaleTimeString());
@@ -97,7 +118,7 @@ export const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedRole, selectedLeaseId, state?.team]);
+  }, [selectedRole, authUser?.role, selectedLeaseId, state?.team]);
 
   // Load onboarding requests when in onboarding tab or admin role
   useEffect(() => {
@@ -114,8 +135,11 @@ export const App: React.FC = () => {
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
 
     const connectSSE = () => {
-      const teamSlug = selectedRole === "team" && state?.team ? state.team.slug : undefined;
-      const sseUrl = teamSlug ? `/ops/events?team=${encodeURIComponent(teamSlug)}` : `/ops/events`;
+      const isAdmin = selectedRole === "admin" || authUser?.role === "admin" || authUser?.role === "superadmin";
+      const teamSlug = !isAdmin && selectedRole === "team" && state?.team ? state.team.slug : undefined;
+      const sseUrl = teamSlug 
+        ? `/ops/events?team=${encodeURIComponent(teamSlug)}` 
+        : `/ops/events?team=all&role=admin`;
 
       try {
         eventSource = new EventSource(sseUrl);
@@ -167,7 +191,7 @@ export const App: React.FC = () => {
         clearInterval(fallbackInterval);
       }
     };
-  }, [selectedRole, state?.team?.slug]);
+  }, [selectedRole, authUser?.role, state?.team?.slug]);
 
   // Handle Destroy Lease
   const handleDestroyLease = async (leaseId: string, ticket?: string) => {
