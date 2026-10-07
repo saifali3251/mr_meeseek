@@ -536,6 +536,7 @@ export const App: React.FC = () => {
               selectedApp={selectedApp}
               onResetFilter={() => setSelectedApp("all")}
               loading={isLoading}
+              onRefresh={loadState}
             />
           </div>
         )}
@@ -559,6 +560,16 @@ export const App: React.FC = () => {
           <JudgePlayground
             onRefresh={loadState}
             jiraBaseUrl={state?.jira_base || ""}
+            onNavigateToWorkspaces={(ticket) => {
+              setSelectedApp("all");
+              setActiveTab("workspaces");
+              if (ticket) {
+                const match = state?.leases?.find(
+                  (l) => (l.ticket || "").toUpperCase() === ticket.toUpperCase()
+                );
+                setSelectedLeaseId(match ? match.lease_id : ticket);
+              }
+            }}
           />
         )}
       </main>

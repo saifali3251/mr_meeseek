@@ -29,6 +29,7 @@ interface WorkspacesTableProps {
   selectedApp?: string;
   onResetFilter?: () => void;
   loading?: boolean;
+  onRefresh?: () => void;
 }
 
 function formatTTL(expiresAt?: number, now: number = Date.now() / 1000): { text: string; color: "green" | "amber" | "red" } {
@@ -56,6 +57,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
   selectedApp,
   onResetFilter,
   loading = false,
+  onRefresh,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedLeaseId, setExpandedLeaseId] = useState<string | null>(() => {
@@ -173,7 +175,10 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
             {leases.map((lease, wsIdx) => {
               const accent = ["cyan", "orange", "green", "violet"][wsIdx % 4];
               const task = getTaskForLease(lease);
-              const isExpanded = expandedLeaseId === lease.lease_id;
+              const isExpanded =
+                expandedLeaseId === lease.lease_id ||
+                (!!expandedLeaseId &&
+                  (lease.ticket || "").toUpperCase() === expandedLeaseId.toUpperCase());
               const jiraLink = jiraBaseUrl ? `${jiraBaseUrl.replace(/\/$/, "")}/browse/${lease.ticket}` : null;
 
               const testExit = task?.evidence?.test_exit ?? lease.evidence?.test_exit;
@@ -412,6 +417,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                           lease={lease}
                           task={task}
                           jiraBaseUrl={jiraBaseUrl}
+                          onRefresh={onRefresh}
                         />
                       </td>
                     </tr>

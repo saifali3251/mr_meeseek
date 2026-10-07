@@ -25,6 +25,10 @@ log = logging.getLogger("holodeck.console.routes")
 class TriggerRequest(BaseModel):
     ticket: str
     app: Optional[str] = None
+    prompt: Optional[str] = None
+    target_repo: Optional[str] = None
+    base_overrides: Optional[dict[str, str]] = None
+    plan_only: bool = False
 
 
 class ReiterateRequest(BaseModel):
@@ -40,9 +44,31 @@ def build_router(manager: ConsoleManager) -> APIRouter:
     r = APIRouter()
 
     @r.post("/console/trigger", tags=["console"])
-    def trigger(body: TriggerRequest):
+    def trigger(body: TriggerRequest, request: Request):
         try:
-            return manager.trigger(body.ticket, body.app).as_dict()
+            bridge = getattr(request.app.state, "jira_bridge", None)
+            if bridge and not body.prompt:
+                # Dispatch strike directly through JiraBridge so ticket description,
+                # target repo, plan flags, and behavioral prompt are pulled live from Jira.
+                status = bridge.strike(body.ticket)
+                if status in ("conflict",):
+                    raise HTTPException(status_code=409, detail=f"A task is already active for ticket {body.ticket}")
+                if status in ("invalid-target-repo",):
+                    raise HTTPException(status_code=400, detail=f"Ticket {body.ticket} description must specify 'Repo: <name>' for composite app")
+                if status in ("error",):
+                    raise HTTPException(status_code=500, detail=f"Failed to start task for ticket {body.ticket}")
+                rec = manager.store.get(body.ticket.upper())
+                if rec:
+                    return rec.as_dict()
+                return {"status": status, "ticket": body.ticket}
+
+            return manager.trigger(
+                body.ticket, body.app,
+                prompt=body.prompt,
+                target_repo=body.target_repo,
+                base_overrides=body.base_overrides,
+                plan_only=body.plan_only
+            ).as_dict()
         except ConsoleError as e:
             raise HTTPException(status_code=e.status_code, detail=str(e))
 

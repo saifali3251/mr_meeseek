@@ -92,6 +92,66 @@ export async function strikeEnvironment(
   return res.json();
 }
 
+export async function triggerTask(
+  ticket: string,
+  app?: string,
+  prompt?: string,
+  target_repo?: string,
+  plan_only?: boolean
+): Promise<any> {
+  const authHeaders = getAuthHeaders();
+  const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
+  const qs = isAdmin ? "?role=admin&team=all" : "";
+
+  const res = await fetch(`${BASE_URL}/console/trigger${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({
+      ticket,
+      app: app || null,
+      prompt: prompt || null,
+      target_repo: target_repo || null,
+      plan_only: !!plan_only,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to trigger autonomous task");
+  }
+  return res.json();
+}
+
+export async function finalizeTask(ticket: string, leaseId?: string): Promise<any> {
+  const authHeaders = getAuthHeaders();
+  const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
+  const qs = isAdmin ? "?role=admin&team=all" : "";
+
+  if (ticket) {
+    try {
+      const res = await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}/finalize${qs}`, {
+        method: "POST",
+        headers: { Accept: "application/json", ...authHeaders },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn("console/tasks finalize failed, attempting ops fallback:", e);
+    }
+  }
+
+  const targetId = leaseId || ticket;
+  const res = await fetch(`${BASE_URL}/ops/leases/${encodeURIComponent(targetId)}/finalize${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Failed to finalize workspace: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function extendLease(leaseId: string, ttl_s: number = 1800): Promise<any> {
   const authHeaders = getAuthHeaders();
   const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
@@ -441,6 +501,7 @@ export interface JiraVerifyResult {
   exists: boolean | null;
   ticket: string;
   summary?: string;
+  description?: string;
   issuetype?: string;
   labels?: string[];
   reason?: string;
