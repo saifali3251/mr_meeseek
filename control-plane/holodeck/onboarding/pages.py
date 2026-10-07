@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from holodeck.onboarding.models import (DESTRUCTIVE_FIELDS, MANIFEST_FIELDS,
-                                        OnboardingRequest, RepoSpec)
+                                        ManifestField, OnboardingRequest, RepoSpec)
 from holodeck.onboarding.service import (OnboardingConflict, OnboardingNotFound,
                                          OnboardingService)
 from holodeck.teams import Team, TeamStore, resolve_team, set_team_cookies
@@ -33,6 +33,7 @@ class RepoSpecIn(BaseModel):
     url: str
     branch: str = "main"
     role: str = "app"
+    test_cmd: Optional[str] = None
     depends_on: list[str] = Field(default_factory=list)
     via: Optional[str] = None
     env_var: Optional[str] = None
@@ -41,7 +42,16 @@ class RepoSpecIn(BaseModel):
 class NewRequestBody(BaseModel):
     app_name: str
     contact: str = ""
+    team_slug: Optional[str] = None
+    jira_project: Optional[str] = None
+    test_cmd: Optional[str] = None
+    preview_port: Optional[str] = None
     repos: list[RepoSpecIn]
+
+
+class ValidateRepoBody(BaseModel):
+    url: str
+    branch: str = "main"
 
 
 class FieldEdits(BaseModel):
@@ -79,6 +89,11 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
             raise HTTPException(403, "not your team's request")
         return req
 
+    @r.post("/ops/onboard/validate-repo")
+    def onboard_validate_repo(body: ValidateRepoBody) -> dict:
+        from holodeck.onboarding.git_validator import validate_git_repo
+        return validate_git_repo(body.url, body.branch)
+
     @r.get("/ops/onboard", response_class=HTMLResponse, include_in_schema=False)
     def onboard_page() -> str:
         return _WIZARD_PAGE
@@ -93,10 +108,31 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
 
     @r.post("/ops/onboard/requests")
     def onboard_create(body: NewRequestBody, request: Request, response: Response) -> dict:
-        team = _team_or_403(request, response)
+        team = resolve_team(request, teams)
+        target_slug = (team.slug if team else (body.team_slug or "core")).strip().lower()
+        if team is None:
+            team = teams.get(target_slug)
+            if team is None:
+                try:
+                    team = teams.create(target_slug.replace("-", " ").title(), contact=body.contact or "", slug=target_slug)
+                except Exception:
+                    team = None
+        if team is None:
+            team = _team_or_403(request, response)
+        else:
+            set_team_cookies(response, team)
         try:
-            req = svc.create(team.slug, body.app_name, body.contact,
-                             [RepoSpec(**x.model_dump()) for x in body.repos])
+            req = svc.create(target_slug, body.app_name, body.contact,
+                             [RepoSpec(**x.model_dump()) for x in body.repos],
+                             jira_project=body.jira_project,
+                             test_cmd=body.test_cmd,
+                             preview_port=body.preview_port)
+            if body.test_cmd:
+                req.manifest["HOLO_TEST_CMD"] = ManifestField(value=body.test_cmd, source="user_input", confidence="high")
+            if body.preview_port:
+                req.manifest["HOLO_APP_PORT"] = ManifestField(value=str(body.preview_port), source="user_input", confidence="high")
+            if body.test_cmd or body.preview_port:
+                svc.store.put(req)
         except OnboardingConflict as e:
             raise HTTPException(409, str(e))
         except ValueError as e:
@@ -132,6 +168,23 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
         except OnboardingConflict as e:
             raise HTTPException(409, str(e))
 
+    @r.delete("/ops/onboard/requests/{request_id}")
+    def onboard_delete(request_id: str, request: Request, response: Response) -> dict:
+        team = resolve_team(request, teams)
+        try:
+            req = svc.get(request_id)
+        except OnboardingNotFound:
+            raise HTTPException(404, "no such onboarding request")
+        if req.status.value == "published":
+            raise HTTPException(403, "Published applications can only be deleted by platform superadmins")
+        if team and req.team_slug != team.slug:
+            raise HTTPException(403, "not your team's request")
+        try:
+            req = svc.delete(request_id)
+            return {"ok": True, "request_id": request_id, "app_name": req.app_name}
+        except OnboardingConflict as e:
+            raise HTTPException(409, str(e))
+
     # ---- platform review — the last human gate before a manifest is real ----
 
     @r.get("/ops/admin/onboarding", response_class=HTMLResponse, include_in_schema=False)
@@ -142,7 +195,7 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
     def admin_state() -> dict:
         return {"manifest_fields": list(MANIFEST_FIELDS),
                "destructive_fields": list(DESTRUCTIVE_FIELDS),
-               "requests": [_req_dict(x) for x in svc.list_pending_approval()]}
+               "requests": [_req_dict(x) for x in svc.list_all()]}
 
     @r.post("/ops/admin/onboarding/requests/{request_id}/approve")
     def admin_approve(request_id: str) -> dict:
@@ -157,6 +210,16 @@ def build_onboarding_pages_router(svc: OnboardingService, teams: TeamStore) -> A
     def admin_reject(request_id: str, body: RejectBody) -> dict:
         try:
             return _req_dict(svc.reject(request_id, body.reason))
+        except OnboardingNotFound:
+            raise HTTPException(404, "no such onboarding request")
+        except OnboardingConflict as e:
+            raise HTTPException(409, str(e))
+
+    @r.delete("/ops/admin/onboarding/requests/{request_id}")
+    def admin_delete(request_id: str) -> dict:
+        try:
+            req = svc.delete(request_id)
+            return {"ok": True, "request_id": request_id, "app_name": req.app_name}
         except OnboardingNotFound:
             raise HTTPException(404, "no such onboarding request")
         except OnboardingConflict as e:

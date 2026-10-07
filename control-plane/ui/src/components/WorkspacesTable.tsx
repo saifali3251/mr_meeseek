@@ -8,7 +8,6 @@ import {
   Clock, 
   ChevronDown, 
   ChevronUp,
-  Activity,
   Globe
 } from "lucide-react";
 import { Lease, TaskRecord } from "../types";
@@ -27,6 +26,8 @@ interface WorkspacesTableProps {
   isExtending?: boolean;
   now?: number;
   onSummon?: () => void;
+  selectedApp?: string;
+  onResetFilter?: () => void;
   loading?: boolean;
 }
 
@@ -52,6 +53,8 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
   isExtending = false,
   now = Date.now() / 1000,
   onSummon,
+  selectedApp,
+  onResetFilter,
   loading = false,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -132,6 +135,20 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
             <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
               {leases.length} Active
             </span>
+            {selectedApp && selectedApp !== "all" && (
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-slate-800 text-cyan-300 border border-cyan-500/30">
+                <span>App: {selectedApp.replace("full-stack-application", "Full-Stack App")}</span>
+                {onResetFilter && (
+                  <button
+                    onClick={onResetFilter}
+                    className="hover:text-red-400 text-slate-400 font-bold ml-1"
+                    title="Clear filter"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            )}
           </h3>
           <p className="text-sm text-slate-400 mt-0.5">
             Click any row to expand its live 6-step Autonomous Execution DAG & inspect runtime artifacts

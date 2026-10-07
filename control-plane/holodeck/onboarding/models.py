@@ -56,6 +56,7 @@ class RepoSpec:
     url: str
     branch: str = "main"
     role: str = "app"          # app | db-owner | gateway | frontend | worker
+    test_cmd: Optional[str] = None  # Automated test / validation command
     depends_on: list[str] = field(default_factory=list)
     via: Optional[str] = None       # rest_api | graphql | module_federation | grpc
     env_var: Optional[str] = None   # how the dependency is wired at runtime
@@ -84,6 +85,9 @@ class OnboardingRequest:
     trial_log: str = ""
     trial_error: Optional[str] = None
     reject_reason: Optional[str] = None
+    jira_project: Optional[str] = None
+    test_cmd: Optional[str] = None
+    preview_port: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -91,11 +95,10 @@ class OnboardingRequest:
         return len(self.repos) > 1
 
     def has_unreviewed_destructive_fields(self) -> bool:
-        """True until every destructive field has been touched by a human (its
-        source is no longer a bare recon guess). Blocks trial/publish — see
-        OnboardingService — so a guessed HOLO_SEED_CMD can never run unseen."""
+        """True until every non-empty destructive field has been confirmed by a human
+        (its source is no longer a bare recon guess). Empty or absent fields are non-destructive."""
         for name in DESTRUCTIVE_FIELDS:
             f = self.manifest.get(name)
-            if f is None or f.source == "needs_review":
+            if f is not None and f.value and f.source == "needs_review":
                 return True
         return False

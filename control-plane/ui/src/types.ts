@@ -134,17 +134,37 @@ export interface OnboardingRepoSpec {
   url: string;
   branch: string;
   role: string;
+  test_cmd?: string;
   depends_on?: string[];
+  via?: string;
+  env_var?: string;
 }
 
 export interface OnboardingRequest {
-  id: string;
+  id?: string;
+  request_id: string;
   team_slug: string;
   app_name: string;
   contact: string;
-  status: "pending" | "trialing" | "ready" | "rejected";
+  status:
+    | "draft"
+    | "trial_running"
+    | "trial_passed"
+    | "trial_failed"
+    | "pending_approval"
+    | "rejected"
+    | "published"
+    | string;
   repos: OnboardingRepoSpec[];
+  manifest?: Record<string, { value: string | null; source: string; confidence: string }>;
+  trial_log?: string;
   trial_output?: string;
+  trial_error?: string | null;
+  reject_reason?: string | null;
+  jira_project?: string | null;
+  test_cmd?: string | null;
+  preview_port?: string | null;
   created_at: number;
+  updated_at?: number;
 }
 
