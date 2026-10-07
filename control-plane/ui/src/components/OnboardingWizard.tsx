@@ -22,6 +22,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { OnboardingRequest, Team, UserRole } from "../types";
+import meeseekCheer from "../assets/meeseek-cheer.webp";
 import { 
   createOnboardingRequest, 
   triggerTrialRun, 
@@ -84,6 +85,41 @@ const getPresetsForRole = (role: string): string[] => {
       ];
   }
 };
+
+const STATUS_META: Record<string, { label: string; tone: string; icon: string }> = {
+  draft: { label: "Draft", tone: "ob-pill-slate", icon: "✎" },
+  staged: { label: "Staged", tone: "ob-pill-slate", icon: "✎" },
+  trial_running: { label: "Trial running", tone: "ob-pill-blue ob-pill-live", icon: "⟳" },
+  trial_passed: { label: "Trial passed", tone: "ob-pill-green", icon: "✓" },
+  trial_failed: { label: "Trial failed", tone: "ob-pill-red", icon: "✕" },
+  pending_approval: { label: "In review", tone: "ob-pill-orange ob-pill-live", icon: "◷" },
+  published: { label: "Live", tone: "ob-pill-green ob-pill-solid", icon: "🚀" },
+  rejected: { label: "Changes requested", tone: "ob-pill-amber", icon: "!" },
+};
+
+const StatusPill: React.FC<{ status?: string }> = ({ status }) => {
+  const key = status || "draft";
+  const meta = STATUS_META[key] || { label: key.replace(/_/g, " "), tone: "ob-pill-slate", icon: "•" };
+  return (
+    <span className={`ob-pill ${meta.tone}`} title={key}>
+      <span className="ob-pill-icon" aria-hidden="true">{meta.icon}</span>
+      {meta.label}
+    </span>
+  );
+};
+
+const WIZARD_STEPS = [
+  { s: 1, label: "Identity", hint: "Name & team" },
+  { s: 2, label: "Repos & tests", hint: "Code & quality gates" },
+  { s: 3, label: "Preflight", hint: "Trial & review" },
+];
+
+const TRIAL_STAGES = [
+  "Cloning repositories",
+  "Booting containers",
+  "Running quality gates",
+  "Snapshotting golden image",
+];
 
 interface OnboardingWizardProps {
   team: Team | null;
@@ -380,6 +416,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     }
   };
 
+  const identityScore = [appName, teamSlug, contact, jiraProject].filter((v) => v.trim()).length;
+
   // Superadmin only reviews applications that have been submitted for approval
   const visibleRequests = useMemo(() => {
     if (userRole === "superadmin") {
@@ -389,7 +427,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   }, [onboardingRequests, userRole]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 ob-root">
       {/* Applications Queue & Platform Review (Visible for Admins or when applications exist) */}
       {(isAdmin || visibleRequests.length > 0) && (
         <div className="glass-panel rounded-2xl p-6 border border-meeseek-border shadow-xl">
@@ -405,8 +443,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   : "Track registration status, preflight certification, and golden image publishing"}
               </p>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-purple-500/10 text-purple-400 border border-purple-500/30 font-semibold">
-              {visibleRequests.length} {userRole === "superadmin" ? "Awaiting Review" : "Applications"}
+            <span className="ob-count">
+              <b>{visibleRequests.length}</b> {userRole === "superadmin" ? "Awaiting Review" : "Applications"}
             </span>
           </div>
 
@@ -468,7 +506,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     if (!reqId) return null;
                     const isBusy = adminActionLoading === reqId;
                     return (
-                      <tr key={reqId} className="hover:bg-meeseek-900/40">
+                      <tr key={reqId} className="ob-row">
                         <td className="py-3 px-4 font-bold text-white">
                           <div className="flex items-center space-x-1.5">
                             <span>{req.app_name}</span>
@@ -494,19 +532,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                           {req.repos?.map((r) => r.name).join(", ") || "—"}
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                            req.status === "published"
-                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                              : req.status === "pending_approval"
-                              ? "bg-purple-500/15 text-purple-300 border border-purple-500/30 font-semibold"
-                              : req.status === "trial_passed"
-                              ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-                              : req.status === "rejected"
-                              ? "bg-red-500/15 text-red-300 border border-red-500/30"
-                              : "bg-amber-500/10 text-amber-300 border border-amber-500/30"
-                          }`}>
-                            {req.status}
-                          </span>
+                          <StatusPill status={req.status} />
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1.5">
@@ -515,10 +541,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                               <button
                                 onClick={() => handleRunTrial(reqId)}
                                 disabled={isBusy || isTrialing}
-                                className="px-2.5 py-1 rounded text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all disabled:opacity-50"
+                                className="ob-trial-btn"
                                 title="Run preflight trial build"
                               >
-                                Trial
+                                <Play className="w-3 h-3 fill-current" />
+                                <span>Run trial</span>
                               </button>
                             )}
 
@@ -620,8 +647,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       {/* Onboarding Wizard Form Card (Self-serve registration for engineering teams; hidden for platform superadmins) */}
       {userRole !== "superadmin" && (
         <div className="glass-panel rounded-2xl p-8 border border-meeseek-border shadow-xl">
-          <div className="flex items-center justify-between pb-6 border-b border-meeseek-border">
-            <div>
+          <div className="ob-hero flex items-start justify-between gap-6 flex-wrap pb-6 border-b border-meeseek-border">
+            <div className="min-w-0 flex-1">
               <span className="text-xs font-mono font-semibold uppercase text-cyan-400 tracking-wider">
                 Self-Serve Catalog Registration
               </span>
@@ -634,30 +661,29 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           </div>
 
           {/* Stepper Progress */}
-          <div className="flex items-center space-x-2 text-xs font-mono">
-            {[
-              { s: 1, label: "Identity" },
-              { s: 2, label: "Repositories & Tests" },
-              { s: 3, label: "Preflight Trial & Review" },
-            ].map(({ s, label }) => (
-              <div key={s} className="flex items-center space-x-1.5">
-                <div
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold transition-all ${
-                    step === s
-                      ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/30"
-                      : step > s
-                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                      : "bg-slate-900 text-slate-600 border border-slate-800"
-                  }`}
+          <div
+            className="ob-steps"
+            style={{ ["--ob-progress" as any]: `${((Math.min(step, 3) - 1) / 2) * 100}%` }}
+          >
+            <div className="ob-steps-track" aria-hidden="true"><i /></div>
+            {WIZARD_STEPS.map(({ s, label, hint }) => {
+              const done = step > s;
+              const canJump = done && s < 3;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => canJump && setStep(s)}
+                  disabled={!canJump}
+                  className={`ob-step ${step === s ? "is-active" : done ? "is-done" : ""}`}
+                  aria-current={step === s ? "step" : undefined}
                 >
-                  {step > s ? "✓" : s}
-                </div>
-                <span className={`text-[11px] hidden md:inline ${step === s ? "text-cyan-400 font-semibold" : "text-slate-500"}`}>
-                  {label}
-                </span>
-                {s < 3 && <span className="text-slate-700 hidden md:inline">/</span>}
-              </div>
-            ))}
+                  <span className="ob-step-dot">{done ? <Check className="w-4 h-4" /> : s}</span>
+                  <span className="ob-step-label">{label}</span>
+                  <span className="ob-step-hint">{hint}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -700,13 +726,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         <form onSubmit={handleStageDraft} className="mt-6 space-y-6">
           {/* STEP 1: App & Team Details */}
           {step === 1 && (
-            <div className="space-y-4">
+            <div className="space-y-4 ob-step-anim">
               <h4 className="text-sm font-semibold text-white flex items-center space-x-2">
                 <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs">1</span>
                 <span>Application Identity & Team Ownership</span>
               </h4>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="ob-identity">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start">
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
                     Application Slug <span className="text-cyan-400">*</span>
@@ -764,6 +791,45 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 </div>
               </div>
 
+              {/* Live app card preview */}
+              <aside className="ob-preview" aria-label="Live preview of your application card">
+                <span className="ob-preview-tag"><i />Live preview</span>
+                <div className="ob-preview-head">
+                  <div className={`ob-preview-logo ${appName ? "is-set" : ""}`}>
+                    {(appName || "?").replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "?"}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="ob-preview-name" key={appName}>{appName || "your-app"}</div>
+                    <div className="ob-preview-sub">owned by <b>{teamSlug || "your-team"}</b></div>
+                  </div>
+                </div>
+                <div className="ob-preview-chips">
+                  {jiraProject ? (
+                    <span className="ob-chip ob-chip-blue" key={"j" + jiraProject}>Jira · {jiraProject}</span>
+                  ) : (
+                    <span className="ob-chip ob-chip-ghost">No Jira board</span>
+                  )}
+                  {contact ? (
+                    <span className="ob-chip ob-chip-orange" key={"c" + contact}>{contact}</span>
+                  ) : (
+                    <span className="ob-chip ob-chip-ghost">No contact</span>
+                  )}
+                  <span className="ob-chip ob-chip-ghost">{repos.length} repos prefilled</span>
+                </div>
+                <div className="ob-meter">
+                  <div className="ob-meter-bar"><i style={{ width: `${identityScore * 25}%` }} /></div>
+                  <span>{identityScore}/4</span>
+                </div>
+                <p className="ob-preview-hint">
+                  {identityScore === 4
+                    ? "Looking sharp! Your app is ready for repositories."
+                    : appName
+                    ? "Nice. Add a contact and Jira board to complete the card."
+                    : "Start typing and watch your app card come to life."}
+                </p>
+              </aside>
+              </div>
+
               <div className="pt-4 flex justify-end">
                 <button
                   type="button"
@@ -775,7 +841,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     setErrorMessage(null);
                     setStep(2);
                   }}
-                  className="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center space-x-2 transition-all shadow-lg shadow-cyan-600/20"
+                  className="ob-cta"
                 >
                   <span>Next: Configure Repositories</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -786,7 +852,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
           {/* STEP 2: Microservices & Automated Test Gates */}
           {step === 2 && (
-            <div className="space-y-4">
+            <div className="space-y-4 ob-step-anim">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-semibold text-white flex items-center space-x-2">
@@ -800,7 +866,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 <button
                   type="button"
                   onClick={addRepoRow}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 text-xs font-medium flex items-center space-x-1.5 transition-all"
+                  className="ob-add-btn"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Microservice / Repo</span>
@@ -811,16 +877,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 {repos.map((repo, idx) => (
                   <div
                     key={repo.id}
-                    className="p-4 rounded-xl bg-meeseek-950 border border-slate-800 space-y-3 relative group"
+                    className={`ob-repo ob-role-${repo.role} p-4 rounded-xl space-y-3 relative group`}
+                    style={{ animationDelay: `${idx * 60}ms` }}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-mono font-bold text-cyan-400">
                           #{idx + 1} {idx === 0 ? "(Primary Service / Entrypoint)" : `Microservice`}
                         </span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                          role: {repo.role}
-                        </span>
+                        <span className="ob-role-chip">{repo.role}</span>
                       </div>
 
                       {repos.length > 1 && (
@@ -935,12 +1000,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                           </span>
                         ) : repo.validation ? (
                           repo.validation.valid ? (
-                            <span className="text-emerald-400 flex items-center space-x-1 text-[11px] font-mono">
+                            <span className="ob-pop text-emerald-400 flex items-center space-x-1 text-[11px] font-mono">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               <span>Reachable (HEAD: {repo.validation.commit_sha})</span>
                             </span>
                           ) : (
-                            <span className="text-amber-400 flex items-center space-x-1 text-[11px] font-mono">
+                            <span className="ob-shake text-amber-400 flex items-center space-x-1 text-[11px] font-mono">
                               <AlertCircle className="w-3.5 h-3.5" />
                               <span>{repo.validation.error || "Reachability check failed"} (Optional)</span>
                             </span>
@@ -954,9 +1019,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         type="button"
                         onClick={() => validateRepo(repo.id)}
                         disabled={repo.isValidating || !repo.url.trim()}
-                        className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono transition-all disabled:opacity-50"
+                        className="ob-soft-btn"
                       >
-                        {repo.isValidating ? "Validating..." : "Validate Connection"}
+                        <GitBranch className="w-3.5 h-3.5" />
+                        {repo.isValidating ? "Checking…" : repo.validation?.valid ? "Re-check" : "Check connection"}
                       </button>
                     </div>
                   </div>
@@ -1015,7 +1081,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   type="button"
                   onClick={handleStageDraft}
                   disabled={isSubmitting}
-                  className="px-6 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-medium text-xs flex items-center space-x-2 shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-50"
+                  className="ob-cta"
                 >
                   <span>{isSubmitting ? "Staging Application..." : "Stage & Preflight Trial"}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -1026,7 +1092,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
           {/* STEP 3: Preflight Trial & Readiness Confirmation */}
           {step === 3 && (
-            <div className="space-y-6">
+            <div className="space-y-6 ob-step-anim">
               <div className="p-6 rounded-xl bg-meeseek-950 border border-slate-800 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
                   <div>
@@ -1040,17 +1106,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   </div>
 
                   <div>
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-semibold ${
-                      stagedRequest?.status === "trial_passed"
-                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                        : stagedRequest?.status === "pending_approval"
-                        ? "bg-purple-500/20 text-purple-400 border border-purple-500/40"
-                        : stagedRequest?.status === "trial_failed"
-                        ? "bg-red-500/20 text-red-400 border border-red-500/40"
-                        : "bg-amber-500/20 text-amber-300 border border-amber-500/40"
-                    }`}>
-                      {stagedRequest?.status || "draft"}
-                    </span>
+                    <StatusPill status={isTrialing ? "trial_running" : stagedRequest?.status || "draft"} />
                   </div>
                 </div>
 
@@ -1064,7 +1120,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         if (targetId) handleRunTrial(targetId);
                       }}
                       disabled={isTrialing || !stagedRequest}
-                      className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs flex items-center space-x-2 transition-all shadow-lg shadow-cyan-600/20 disabled:opacity-50"
+                      className={`ob-cta ${isTrialing ? "is-busy" : ""}`}
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
                       <span>{isTrialing ? "Executing Trial Build..." : "Run Trial Dry Run"}</span>
@@ -1087,7 +1143,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                       type="button"
                       onClick={handleSubmitForReview}
                       disabled={isFinalSubmitting}
-                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium text-xs flex items-center space-x-2 shadow-lg shadow-emerald-600/20 transition-all"
+                      className="ob-cta ob-cta-green"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>{isFinalSubmitting ? "Submitting..." : "Submit for Platform Review"}</span>
@@ -1095,10 +1151,51 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   )}
                 </div>
 
+                {/* Trial in progress */}
+                {isTrialing && (
+                  <div className="ob-trial-run" role="status">
+                    <div className="ob-trial-bar"><i /></div>
+                    <ul>
+                      {TRIAL_STAGES.map((label, i) => (
+                        <li key={label} style={{ animationDelay: `${i * 1.6}s` }}>
+                          <span className="ob-trial-dot" style={{ animationDelay: `${i * 1.6}s` }} />
+                          {label}
+                        </li>
+                      ))}
+                    </ul>
+                    <p>Meeseek is building your golden image. This usually takes a minute or two.</p>
+                  </div>
+                )}
+
+                {/* Trial passed celebration */}
+                {!isTrialing && stagedRequest?.status === "trial_passed" && (
+                  <div className="ob-celebrate">
+                    <div className="ob-confetti" aria-hidden="true">
+                      {Array.from({ length: 14 }).map((_, i) => <i key={i} />)}
+                    </div>
+                    <img src={meeseekCheer} alt="" className="ob-celebrate-mee" />
+                    <div>
+                      <h5>Exit 0. Ooh yeah, can do!</h5>
+                      <p>The preflight trial passed and your golden image is ready. Submit it for platform review to go live.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* In review */}
+                {!isTrialing && stagedRequest?.status === "pending_approval" && (
+                  <div className="ob-review-note">
+                    <span className="ob-review-clock" aria-hidden="true">◷</span>
+                    <div>
+                      <h5>Submitted for review</h5>
+                      <p>A platform superadmin will certify and publish it. You'll see it go <b>Live</b> in the table above.</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Live Trial Terminal Console */}
                 {activeTrialOutput && (
-                  <div className="rounded-xl bg-black border border-slate-800 p-4 font-mono text-xs overflow-x-auto text-slate-300">
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-900 text-slate-500 text-[11px]">
+                  <div className="ob-terminal rounded-xl p-4 font-mono text-xs overflow-x-auto">
+                    <div className="ob-terminal-head flex items-center justify-between pb-2 mb-2 text-[11px]">
                       <span className="flex items-center space-x-1.5 text-cyan-400">
                         <Terminal className="w-3.5 h-3.5" />
                         <span>Preflight Execution Output</span>
