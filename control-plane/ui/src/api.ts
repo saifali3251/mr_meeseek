@@ -103,7 +103,8 @@ export async function triggerTask(
   const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
   const qs = isAdmin ? "?role=admin&team=all" : "";
 
-  const res = await fetch(`${BASE_URL}/console/trigger${qs}`, {
+  // Use /ops/trigger to avoid StaticFiles mount 405 collision at /console
+  let res = await fetch(`${BASE_URL}/ops/trigger${qs}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify({
@@ -114,6 +115,22 @@ export async function triggerTask(
       plan_only: !!plan_only,
     }),
   });
+
+  if (!res.ok && (res.status === 404 || res.status === 405)) {
+    // Fallback to /console/trigger
+    res = await fetch(`${BASE_URL}/console/trigger${qs}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({
+        ticket,
+        app: app || null,
+        prompt: prompt || null,
+        target_repo: target_repo || null,
+        plan_only: !!plan_only,
+      }),
+    });
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Failed to trigger autonomous task");

@@ -93,6 +93,15 @@ class StrikeRequest(BaseModel):
     ttl_s: Optional[int] = None
 
 
+class TriggerTaskRequest(BaseModel):
+    ticket: str
+    app: Optional[str] = None
+    prompt: Optional[str] = None
+    target_repo: Optional[str] = None
+    base_overrides: Optional[dict[str, str]] = None
+    plan_only: bool = False
+
+
 class ExtendBody(BaseModel):
     ttl_s: int = 1800
 
@@ -414,6 +423,41 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(502, str(e))
         broadcaster.notify()
         return _lease_dict(lease, cfg)
+
+    @r.post("/ops/trigger")
+    def ops_trigger(body: TriggerTaskRequest, request: Request) -> dict:
+        bridge = getattr(request.app.state, "jira_bridge", None)
+        manager = getattr(request.app.state, "console", None)
+        if not manager:
+            raise HTTPException(500, "Console task manager not initialized")
+
+        if bridge and not body.prompt:
+            status = bridge.strike(body.ticket)
+            if status in ("conflict",):
+                raise HTTPException(status_code=409, detail=f"A task is already active for ticket {body.ticket}")
+            if status in ("invalid-target-repo",):
+                raise HTTPException(status_code=400, detail=f"Ticket {body.ticket} description must specify 'Repo: <name>' for composite app")
+            if status in ("error",):
+                raise HTTPException(status_code=500, detail=f"Failed to start task for ticket {body.ticket}")
+            rec = manager.store.get(body.ticket.upper())
+            broadcaster.notify()
+            if rec:
+                return rec.as_dict()
+            return {"status": status, "ticket": body.ticket}
+
+        try:
+            from holodeck.console.manager import ConsoleError
+            rec = manager.trigger(
+                body.ticket, body.app,
+                prompt=body.prompt,
+                target_repo=body.target_repo,
+                base_overrides=body.base_overrides,
+                plan_only=body.plan_only
+            )
+            broadcaster.notify()
+            return rec.as_dict()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     @r.get("/ops/jira/verify/{ticket}")
     def ops_jira_verify(ticket: str, request: Request) -> dict:
