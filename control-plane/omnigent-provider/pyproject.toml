@@ -1,6 +1,6 @@
 [project]
 name = "omnigent-community-sandbox-holodeck"
-version = "0.1.4"
+version = "0.1.5"
 description = "Holodeck sandbox provider for Omnigent — a lease on a warm, seeded app stack instead of a blank box."
 requires-python = ">=3.12"
 # No runtime deps beyond omnigent itself (provided by the host env) — the
