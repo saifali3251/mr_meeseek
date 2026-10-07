@@ -12,7 +12,7 @@ import {
   Clock
 } from "lucide-react";
 import { OpsState, Lease, TaskRecord, OnboardingRequest, AuthUser } from "./types";
-import { fetchOpsState, releaseLease, extendLease, fetchOnboardingRequests, setCapacity } from "./api";
+import { fetchOpsState, releaseLease, extendLease, fetchOnboardingRequests, setCapacity, serverSignOut } from "./api";
 import { Header, Role } from "./components/Header";
 import { WorkspacesTable } from "./components/WorkspacesTable";
 import { OnboardingWizard } from "./components/OnboardingWizard";
@@ -76,13 +76,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     setAuthUser(null);
     setSelectedRole("team");
     try {
       localStorage.removeItem("meeseek_auth_user");
       document.cookie = "holo_team=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       document.cookie = "holo_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      await serverSignOut();
     } catch (e) {
       console.error("Failed to clear auth user:", e);
     }

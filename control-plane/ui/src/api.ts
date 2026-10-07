@@ -23,17 +23,44 @@ const EMPTY_OPS_STATE: OpsState = {
   },
 };
 
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  try {
+    const raw = localStorage.getItem("meeseek_auth_user");
+    if (raw) {
+      const u = JSON.parse(raw);
+      if (u.role) headers["X-Meeseek-Role"] = u.role;
+      if (u.team) headers["X-Meeseek-Team"] = u.team;
+    }
+  } catch {}
+  return headers;
+}
+
+export async function serverSignOut(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/ops/auth/signout`, { method: "POST" });
+  } catch (e) {
+    console.warn("Server signout error:", e);
+  }
+}
+
 export async function fetchOpsState(teamSlug?: string, token?: string, role?: string): Promise<OpsState> {
+  const authHeaders = getAuthHeaders();
+  const isAdmin = (role === "admin" || role === "superadmin") || 
+                  authHeaders["X-Meeseek-Role"] === "admin" || 
+                  authHeaders["X-Meeseek-Role"] === "superadmin";
+
   const params = new URLSearchParams();
   if (teamSlug) params.set("team", teamSlug);
-  else params.set("team", "all");
+  else if (isAdmin) params.set("team", "all");
   if (token) params.set("token", token);
   if (role) params.set("role", role);
+  else if (isAdmin) params.set("role", "admin");
   const qs = params.toString() ? `?${params.toString()}` : "";
   
   try {
     const res = await fetch(`${BASE_URL}/ops/state${qs}`, {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", ...authHeaders },
     });
     if (!res.ok) {
       throw new Error(`Failed to load ops state: ${res.statusText}`);
@@ -50,9 +77,12 @@ export async function strikeEnvironment(
   app?: string,
   ttl_s: number = 3600
 ): Promise<any> {
-  const res = await fetch(`${BASE_URL}/ops/strike`, {
+  const authHeaders = getAuthHeaders();
+  const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
+  const qs = isAdmin ? "?role=admin&team=all" : "";
+  const res = await fetch(`${BASE_URL}/ops/strike${qs}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify({ ticket, app: app || null, ttl_s }),
   });
   if (!res.ok) {
@@ -63,9 +93,12 @@ export async function strikeEnvironment(
 }
 
 export async function extendLease(leaseId: string, ttl_s: number = 1800): Promise<any> {
-  const res = await fetch(`${BASE_URL}/ops/leases/${leaseId}/extend`, {
+  const authHeaders = getAuthHeaders();
+  const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
+  const qs = isAdmin ? "?role=admin&team=all" : "";
+  const res = await fetch(`${BASE_URL}/ops/leases/${leaseId}/extend${qs}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify({ ttl_s }),
   });
   if (!res.ok) {
@@ -76,12 +109,16 @@ export async function extendLease(leaseId: string, ttl_s: number = 1800): Promis
 }
 
 export async function releaseLease(leaseId: string, ticket?: string): Promise<any> {
+  const authHeaders = getAuthHeaders();
+  const isAdmin = authHeaders["X-Meeseek-Role"] === "admin" || authHeaders["X-Meeseek-Role"] === "superadmin";
+  const qs = isAdmin ? "?role=admin&team=all" : "";
+
   // If a ticket is provided, also release the console task
   if (ticket) {
     try {
-      await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}`, {
+      await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}${qs}`, {
         method: "DELETE",
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", ...authHeaders },
       });
     } catch (e) {
       console.warn("console/tasks release error:", e);
@@ -89,16 +126,16 @@ export async function releaseLease(leaseId: string, ticket?: string): Promise<an
   }
 
   // Primary release on the operator endpoint
-  let res = await fetch(`${BASE_URL}/ops/leases/${encodeURIComponent(leaseId)}`, {
+  let res = await fetch(`${BASE_URL}/ops/leases/${encodeURIComponent(leaseId)}${qs}`, {
     method: "DELETE",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...authHeaders },
   });
 
   if (!res.ok) {
     // Fallback to /leases/{leaseId} directly
-    res = await fetch(`${BASE_URL}/leases/${encodeURIComponent(leaseId)}`, {
+    res = await fetch(`${BASE_URL}/leases/${encodeURIComponent(leaseId)}${qs}`, {
       method: "DELETE",
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", ...authHeaders },
     });
   }
 
