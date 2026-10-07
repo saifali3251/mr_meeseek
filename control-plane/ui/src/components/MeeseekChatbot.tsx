@@ -346,13 +346,13 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
   const ACCENTS = ["mc-acc-orange", "mc-acc-blue", "mc-acc-green", "mc-acc-violet"];
 
   return (
-    <aside aria-label="Meeseek Copilot" className="mc-root fixed bottom-6 right-6 z-50 flex flex-col items-end">
+    <aside aria-label="Meeseek Copilot" className={`mc-root fixed z-50 flex flex-col items-end ${isOpen ? "bottom-6 right-6" : "bottom-2.5 right-4"}`}>
       {/* Launcher (closed) */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
           className="mc-launcher group"
-          title="Open Ooh-wee Ops"
+          aria-label="Open Ooh-wee Ops"
         >
           <span className="mc-launcher-ring" aria-hidden="true" />
           <span className="mc-launcher-avatar">
@@ -387,8 +387,6 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
                 <p className="mc-status">
                   <span className="mc-status-dot" />
                   Live
-                  <span className="mc-status-sep">·</span>
-                  <span className="mc-status-model">Gemini Flash</span>
                 </p>
               </div>
             </div>
@@ -547,10 +545,6 @@ export const MeeseekChatbot: React.FC<MeeseekChatbotProps> = () => {
               >
                 <Send className="w-4 h-4" />
               </button>
-            </div>
-            <div className="mc-foot">
-              <span><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
-              <span>Type <kbd>/new</kbd> to start over</span>
             </div>
           </div>
         </div>
