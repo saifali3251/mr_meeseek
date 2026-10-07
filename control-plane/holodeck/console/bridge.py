@@ -305,6 +305,23 @@ class JiraBridge:
                  f"Try `{self.prefix} run | retry <text> | finalize | extend | stop`.")
         return "unknown-command"
 
+    def strike(self, key: str) -> str:
+        """Trigger an explicit strike from the console for a Jira ticket.
+        Unlike the passive webhook listener, this allows re-striking if a previous
+        run was already released/terminal."""
+        key = key.upper()
+        existing = self.manager.store.get(key)
+        if existing is not None:
+            if not existing.is_terminal:
+                if existing.halted:
+                    return self._answer(key, "approve")
+                self._say(key, "Meeseek: a task is already active for this ticket.")
+                return "conflict"
+            # If the previous run was terminal, delete it so a fresh run can be started
+            self.manager.store.delete(key)
+
+        return self._start(key)
+
     def _start(self, key: str) -> str:
         # One session per Jira id: if we've EVER started this ticket — active OR
         # already released/failed — don't create another. This avoids the messy
