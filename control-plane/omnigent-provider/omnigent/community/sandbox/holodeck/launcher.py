@@ -69,7 +69,7 @@ _managed_ticket_override: contextvars.ContextVar[str | None] = contextvars.Conte
 
 class HolodeckSandboxLauncher(ExecModelHostLauncher):
     # short name used in `--provider` and error messages
-    provider = "holodeck"
+    provider = "meeseek"
 
     # capability class-vars (the rest are derived from overridden methods)
     supports_local_port_forward = False  # we expose OUTWARD (preview port), not local->sandbox
