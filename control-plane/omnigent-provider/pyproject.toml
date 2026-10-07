@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 
 [project.entry-points."omnigent.sandbox_providers"]
 holodeck = "omnigent.community.sandbox.holodeck.plugin:get_contribution"
+meeseek = "omnigent.community.sandbox.holodeck.plugin:get_contribution"
 
 [build-system]
 requires = ["hatchling"]
