@@ -73,7 +73,8 @@ Before planning or modifying any code, first inspect `CLAUDE.md` (or `AGENT_RULE
 You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
 
 Scope the ticket and share your implementation plan, then proceed directly to \
-implementing it — no need to stop and wait for approval first.
+implementing it — no need to stop and wait for approval first. \
+(If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
 
 EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
 1. Preferred: If a coding sub-agent CLI (e.g. claude, codex, opencodex, cursor-agent, hermes, pi, or agy) is installed in this machine's PATH, you may dispatch the implementation plan to it.
@@ -97,7 +98,8 @@ When you post a status update that reaches the ticket reporter, keep it focused 
 on the ticket itself: what you found, what you're doing, and what you need from \
 them. Leave out internal tooling/process details (which CLIs or sub-agents are \
 available, roster/preflight checks, etc.) unless it's something that actually \
-blocks their decision.
+blocks their decision. \
+CRITICAL: Once you post the summary ending with "Your action: reply `{prefix} finalize`", STOP immediately. Do NOT run background tasks, do NOT schedule timers, and do NOT make further tool calls.
 
 --- Ticket {key} ---
 """
@@ -330,7 +332,9 @@ class JiraBridge:
         spec = issue.get("description") or None
         labels = issue.get("labels") or []
         plan_label = getattr(self.cfg, "jira_plan_label", "meeseek:plan-only")
-        plan_only = bool((spec and "/plan" in spec) or (plan_label in labels))
+        plan_markers = ("/plan", "plan-only", "plan only", "only plan", "just plan", "implementation plan only")
+        spec_lower = (spec or "").lower()
+        plan_only = bool(any(m in spec_lower for m in plan_markers) or (plan_label in labels))
         app = self.manager.cfg.app_key(self.manager.cfg.default_app)
         target_repo, repo_error = self._extract_target_repo(app, spec or "")
         if repo_error:
@@ -600,12 +604,13 @@ class JiraBridge:
                 or rec.pr_url):
             return  # Already finalized or delivered — never regress back to halted
 
-        if rec.session_state != "idle" or rec.waiting:
+        has_handoff = any(m in (rec.stable_agent_message or "") for m in _HANDOFF_MARKERS)
+        is_idle = (rec.session_state == "idle")
+        if (not is_idle and not has_handoff) or rec.waiting:
             if rec.halted:  # left "idle" (or picked up an elicitation) -> re-arm
                 rec.halted = False
                 self.manager.store.put(rec)
             return
-        has_handoff = any(m in (rec.stable_agent_message or "") for m in _HANDOFF_MARKERS)
         if not rec.stable_agent_message or not has_handoff:
             return  # idle, but hasn't actually handed off yet (e.g. mid-dispatch)
         if rec.halted:
