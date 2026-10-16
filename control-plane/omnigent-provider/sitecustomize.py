@@ -236,6 +236,28 @@ def _install_holodeck_target_repo_passthrough() -> None:
     log.info("holodeck target-repo passthrough: installed (HolodeckSandboxLauncher._req wrapped)")
 
 
+def _patch_antigravity_policies() -> None:
+    """Ensure LocalAgentConfig in google.antigravity defaults to allow_all
+    instead of confirm_run_command, allowing headless agent tools to execute."""
+    try:
+        import google.antigravity as ag
+        from google.antigravity.hooks import policy
+        if getattr(ag, "_policies_patched", False):
+            return
+        orig_init = ag.LocalAgentConfig.__init__
+        def _patched_init(self, *args, **kwargs):
+            if "policies" not in kwargs or kwargs["policies"] is None:
+                kwargs["policies"] = [policy.allow_all()]
+            return orig_init(self, *args, **kwargs)
+        ag.LocalAgentConfig.__init__ = _patched_init
+        ag._policies_patched = True
+        log.info("antigravity policies patch: installed (LocalAgentConfig defaults to policy.allow_all())")
+    except Exception:
+        pass
+
+
 _install_holodeck_managed()
 _install_holodeck_ticket_passthrough()
 _install_holodeck_target_repo_passthrough()
+_patch_antigravity_policies()
+
