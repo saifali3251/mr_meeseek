@@ -100,7 +100,7 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
         # Rotating the value in omnigent-secrets + restarting the server pod
         # is sufficient — no golden rebuild, ever, for this.
         self.forward_env = [
-            v.strip() for v in os.environ.get("HOLODECK_FORWARD_ENV", "ANTHROPIC_API_KEY").split(",")
+            v.strip() for v in os.environ.get("HOLODECK_FORWARD_ENV", "ANTHROPIC_API_KEY,GEMINI_API_KEY").split(",")
             if v.strip()
         ]
 
