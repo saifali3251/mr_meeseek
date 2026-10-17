@@ -675,7 +675,8 @@ class ComposeProvider:
         Idempotent: returns an existing PR for the branch instead of erroring."""
         if not handle.ws_dir:
             raise ProviderError("no ws_dir on the lease handle; cannot open a PR")
-        if shutil.which("gh") is None:
+        gh_bin = shutil.which("gh")
+        if gh_bin is None:
             # fail fast (before pushing a branch) with an actionable message —
             # finalize catches this and stamps the evidence without a PR.
             raise ProviderError(
@@ -684,6 +685,10 @@ class ComposeProvider:
         git_root = self._git_root(handle.app, Path(handle.ws_dir), handle.target_repo)
         branch = f"agent/{handle.lease_id}"
         env = {**os.environ}  # gh + git push need the operator's real env/creds
+        gh_tok = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")
+        if gh_tok:
+            env["GH_TOKEN"] = gh_tok
+            env["GITHUB_TOKEN"] = gh_tok
         # idempotent: return the existing PR for this branch rather than duplicating.
         view = self._run(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"],
                          git_root, env, timeout=30)
@@ -691,8 +696,14 @@ class ComposeProvider:
             url = view.stdout.strip()
             self._attach_label(git_root, env, url, label)  # re-finalize keeps the label current
             return url
-        push = self._run(["git", "-C", str(git_root), "push", "-u", "--force", "origin", branch],
-                         git_root, env, timeout=120)
+        push_cmd = [
+            "git",
+            "-c", "credential.helper=",
+            "-c", f"credential.helper=!{gh_bin} auth git-credential",
+            "-C", str(git_root),
+            "push", "-u", "--force", "origin", branch
+        ]
+        push = self._run(push_cmd, git_root, env, timeout=120)
         if push is None or push.returncode != 0:
             raise ProviderError(
                 f"git push failed for {branch}: {(push.stderr if push else 'timeout')[:300]}")
