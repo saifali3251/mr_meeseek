@@ -289,6 +289,7 @@ def create_app(cfg: Config, service: LeaseService,
                 agent_summary=req.agent_summary if req else None,
                 ticket_summary=req.ticket_summary if req else None,
                 issue_type=req.issue_type if req else None,
+                approve_guardrails=req.approve_guardrails if req else False,
             )
         except KeyError:
             raise HTTPException(status_code=404, detail="no such lease")

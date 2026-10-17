@@ -59,6 +59,7 @@ class TaskRecord:
     workflow_state: str = "PROVISIONING"  # canonical lifecycle: PROVISIONING/CODING/WAITING_INPUT/NOTARY_TESTING/NOTARY_CORRECTING/CERTIFIED_PR/CIRCUIT_BREAKER_HALTED
     notary_retries: int = 0               # Host Notary verification retry counter
     plan_only: bool = False               # Tier 1 plan-only mandate: halts on plan creation for approval
+    guardrail_approved: bool = False      # Human authorized blast radius override
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)

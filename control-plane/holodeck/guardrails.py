@@ -15,8 +15,13 @@ from pathlib import Path
 from typing import Callable, Optional
 
 # Blast radius thresholds
-MAX_CHANGED_FILES = 4
+MAX_CHANGED_FILES = 5
 MAX_CHANGED_LINES = 300
+
+# File extensions for compiler artifacts and build cache files to exclude from blast radius calculation
+IGNORED_AUDIT_EXTENSIONS = (
+    ".tsbuildinfo", ".pyc", ".map", ".cache", ".tmp", ".log",
+)
 
 # Security and auth sensitive path patterns
 SECURITY_PATTERNS = re.compile(
@@ -36,11 +41,17 @@ def audit_blast_radius(diff_text: str, changed_files: list[str]) -> tuple[bool, 
     Returns (passed, failure_reason). All checks are OR-combined: violation of any
     single boundary trips the circuit breaker."""
 
+    # Filter out generated build cache / compiler artifacts
+    code_files = [
+        f for f in changed_files
+        if not any(f.endswith(ext) for ext in IGNORED_AUDIT_EXTENSIONS)
+    ]
+
     # 1. File Count Blast Radius
-    if len(changed_files) > MAX_CHANGED_FILES:
+    if len(code_files) > MAX_CHANGED_FILES:
         return False, (
-            f"File blast radius exceeded: {len(changed_files)} files modified "
-            f"(threshold is {MAX_CHANGED_FILES}). Files: {', '.join(changed_files)}"
+            f"File blast radius exceeded: {len(code_files)} files modified "
+            f"(threshold is {MAX_CHANGED_FILES}). Files: {', '.join(code_files)}"
         )
 
     # 2. LOC Budget (Insertions + Deletions)

@@ -99,7 +99,8 @@ class HttpLeaseClient:
         return body
 
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
-                 ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> dict:
+                 ticket_summary: Optional[str] = None, issue_type: Optional[str] = None,
+                 approve_guardrails: bool = False) -> dict:
         # The notary: re-derives readiness/tests/diff host-side and (if
         # HOLODECK_PR is enabled) opens the PR itself — never the agent.
         # timeout=630 on _req already covers HOLODECK_FINALIZE_TIMEOUT_S (600s default).
@@ -108,10 +109,13 @@ class HttpLeaseClient:
         # docstrings). omit any that are empty so a caller that never had them
         # (bridge.py's Jira lookup failed, or this ticket has no Jira issue at
         # all) still gets exactly the old evidence-only PR body.
-        body_req = {k: v for k, v in {
+        body_dict = {
             "agent_summary": agent_summary, "ticket_summary": ticket_summary,
             "issue_type": issue_type,
-        }.items() if v}
+        }
+        if approve_guardrails:
+            body_dict["approve_guardrails"] = True
+        body_req = {k: v for k, v in body_dict.items() if v is not None}
         status, body = self._req("POST", f"/leases/{lease_id}/finalize", body_req or None)
         if status != 200 or body is None:
             raise LeaseClientError(f"finalize failed for {lease_id!r} (HTTP {status})")
@@ -169,7 +173,8 @@ class FakeLeaseClient:
         return row
 
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
-                 ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> dict:
+                 ticket_summary: Optional[str] = None, issue_type: Optional[str] = None,
+                 approve_guardrails: bool = False, **kwargs) -> dict:
         if lease_id not in self._leases:
             raise LeaseClientError(f"finalize failed for {lease_id!r} (HTTP 404)")
         return self.force_evidence.get(lease_id, {

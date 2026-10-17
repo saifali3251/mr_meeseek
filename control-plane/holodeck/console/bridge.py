@@ -293,6 +293,12 @@ class JiraBridge:
             parts = cmd.split(None, 1)
             return self._answer(key, parts[1] if len(parts) > 1 else "")
         if cmd.startswith(("approve", "yes")):
+            rec = self.manager.store.get(key)
+            if rec and (rec.workflow_state == "GUARDRAIL_BLOCKED" or getattr(rec, "guardrail_approved", False)):
+                rec.guardrail_approved = True
+                self.manager.store.put(rec)
+                self._say(key, "Meeseek: ✅ Guardrail override authorized by human approval. Finalizing and opening Pull Request...")
+                return self._finalize(key)
             return self._answer(key, "yes")
         if cmd.startswith(("decline", "reject", "no")):
             return self._answer(key, "no")
@@ -453,6 +459,12 @@ class JiraBridge:
     def _answer(self, key: str, text: str) -> str:
         """Route a human reply: a yes/no on a pending elicitation becomes an
         approval; anything else becomes open-ended guidance (a message)."""
+        existing_rec = self.manager.store.get(key)
+        if existing_rec and (existing_rec.workflow_state == "GUARDRAIL_BLOCKED" or getattr(existing_rec, "guardrail_approved", False)) and text.strip().lower() in ("approve", "yes", "proceed", "approved"):
+            existing_rec.guardrail_approved = True
+            self.manager.store.put(existing_rec)
+            self._say(key, "Meeseek: ✅ Guardrail override authorized by human approval. Finalizing and opening Pull Request...")
+            return self._finalize(key)
         try:
             rec, verdict = self.manager.answer(key, text)
         except ConsoleError as e:
