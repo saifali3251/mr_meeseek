@@ -100,8 +100,14 @@ them. Leave out internal tooling/process details (which CLIs or sub-agents are \
 available, roster/preflight checks, etc.) unless it's something that actually \
 blocks their decision. \
 CRITICAL OPERATIONAL RULES:
-1. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
-2. Immediate Terminal Stop: Once you post the summary ending with "Your action: reply `{prefix} finalize`", STOP immediately. You MUST NOT emit ANY tool calls in the same turn or after outputting the handoff line. The turn must conclude as pure text. Do NOT run background tasks, do NOT schedule timers, and do NOT continue verifying.
+1. Strict Execution Order:
+   a. Inspect existing files, components, and types first before editing.
+   b. Implement code modifications.
+   c. Run the verification/build command synchronously (`npm run build` or targeted test). Fix any compile or test errors until Exit 0.
+   d. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
+   e. ONLY AFTER steps a-d have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
+2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
+3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
 
 --- Ticket {key} ---
 """

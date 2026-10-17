@@ -691,7 +691,7 @@ class ComposeProvider:
             url = view.stdout.strip()
             self._attach_label(git_root, env, url, label)  # re-finalize keeps the label current
             return url
-        push = self._run(["git", "-C", str(git_root), "push", "-u", "origin", branch],
+        push = self._run(["git", "-C", str(git_root), "push", "-u", "--force", "origin", branch],
                          git_root, env, timeout=120)
         if push is None or push.returncode != 0:
             raise ProviderError(
