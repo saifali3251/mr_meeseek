@@ -419,8 +419,34 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
         """The lease is already the seeded, bind-mounted checkout strike.sh
         produced — skip the base class's default git-clone-into-workspace and
         point straight at it instead of cloning a second, unseeded copy.
-        `repo_url` is typed Optional here (the base class's own signature
-        says non-Optional, but start_host above now always calls this even
-        when the caller supplied none) — ignored either way, so it makes no
-        functional difference, just an honest signature."""
-        return "/app"
+        For composite apps, determine target_repo from the Holodeck lease and
+        route the agent's workspace to /workspace/{target_repo}.
+        """
+        target_repo = None
+        try:
+            status, body = self._req("GET", f"/leases/{sandbox_id}")
+            if isinstance(body, dict):
+                target_repo = body.get("target_repo")
+        except Exception as e:
+            log.warning("failed to fetch lease %s in materialize_workspace: %s", sandbox_id, e)
+
+        if not target_repo:
+            try:
+                from sitecustomize import _managed_target_repo_override
+                target_repo = _managed_target_repo_override.get()
+            except Exception:
+                pass
+
+        target = target_repo or repo_name
+        if target:
+            chk = self.run(sandbox_id, f"test -d /workspace/{shlex.quote(target)} && echo 1 || echo 0")
+            if chk.stdout.strip() == "1":
+                log.info("holodeck: materialize_workspace routed to /workspace/%s", target)
+                return f"/workspace/{target}"
+
+        chk_app = self.run(sandbox_id, "test -d /app && echo 1 || echo 0")
+        if chk_app.stdout.strip() == "1":
+            log.info("holodeck: materialize_workspace routed to /app")
+            return "/app"
+
+        return "/workspace"
