@@ -72,8 +72,7 @@ You are working on Jira ticket {key}.
 Before planning or modifying any code, first inspect `CLAUDE.md` (or `AGENT_RULES.md`) in the repository root. \
 You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
 
-Scope the ticket and share your implementation plan, then proceed directly to \
-implementing it — no need to stop and wait for approval first. \
+Proceed directly to inspecting the codebase with your file tools and implementing the required changes — no need to stop and wait for approval first. \
 (If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
 
 EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
