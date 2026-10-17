@@ -314,6 +314,9 @@ class ConsoleManager:
             raise ConsoleNotFound(f"no task {ticket!r}")
         if approve_guardrails is None:
             approve_guardrails = getattr(rec, "guardrail_approved", False)
+        if approve_guardrails:
+            rec.guardrail_approved = True
+            self.store.put(rec)
         agent_summary = None
         if rec.stable_agent_message:
             idx = rec.stable_agent_message.find("Your action:")

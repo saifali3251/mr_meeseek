@@ -298,7 +298,7 @@ class JiraBridge:
                 rec.guardrail_approved = True
                 self.manager.store.put(rec)
                 self._say(key, "Meeseek: ✅ Guardrail override authorized by human approval. Finalizing and opening Pull Request...")
-                return self._finalize(key)
+                return self._finalize(key, approve_guardrails=True)
             return self._answer(key, "yes")
         if cmd.startswith(("decline", "reject", "no")):
             return self._answer(key, "no")
@@ -480,7 +480,7 @@ class JiraBridge:
         self._say(key, "Meeseek 🔁 Guidance received. Continuing.")
         return "reiterated"
 
-    def _finalize(self, key: str) -> str:
+    def _finalize(self, key: str, approve_guardrails: Optional[bool] = None) -> str:
         """The explicit human trigger for the notary. Never automatic — the human
         decides the change is ready, then Meeseek (not the agent) re-verifies it
         host-side and opens the PR from that evidence."""
@@ -502,7 +502,8 @@ class JiraBridge:
 
         try:
             rec, evidence = self.manager.finalize(
-                key, ticket_summary=ticket_summary, issue_type=issue_type)
+                key, ticket_summary=ticket_summary, issue_type=issue_type,
+                approve_guardrails=approve_guardrails)
         except ConsoleError as e:
             self._say(key, f"Meeseek: finalize failed — {e}")
             return "error"
