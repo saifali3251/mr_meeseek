@@ -64,6 +64,11 @@ else
   done
 fi
 
+if [[ -d "$HOLO_SRC/test_frontend" && ! -d "$HOLO_SRC/test_frontend/node_modules" ]]; then
+  log "pre-installing node_modules in test_frontend..."
+  (cd "$HOLO_SRC/test_frontend" && npm install --silent) || warn "npm install in test_frontend failed (offline?)"
+fi
+
 # ---- 2. stage the (self-contained) compose override -----------------------
 log "staging composite compose file into $HOLO_SRC ..."
 cp "$HOLO_DIR/overrides/full-stack-application.compose.yaml" "$HOLO_SRC/$HOLO_COMPOSE_FILE"

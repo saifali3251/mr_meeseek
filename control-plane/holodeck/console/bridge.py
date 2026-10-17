@@ -99,7 +99,9 @@ on the ticket itself: what you found, what you're doing, and what you need from 
 them. Leave out internal tooling/process details (which CLIs or sub-agents are \
 available, roster/preflight checks, etc.) unless it's something that actually \
 blocks their decision. \
-CRITICAL: Once you post the summary ending with "Your action: reply `{prefix} finalize`", STOP immediately. Do NOT run background tasks, do NOT schedule timers, and do NOT make further tool calls.
+CRITICAL OPERATIONAL RULES:
+1. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
+2. Immediate Terminal Stop: Once you post the summary ending with "Your action: reply `{prefix} finalize`", STOP immediately. You MUST NOT emit ANY tool calls in the same turn or after outputting the handoff line. The turn must conclude as pure text. Do NOT run background tasks, do NOT schedule timers, and do NOT continue verifying.
 
 --- Ticket {key} ---
 """
