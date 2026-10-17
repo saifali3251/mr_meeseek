@@ -402,7 +402,7 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
         )
         self.run_background(
             sandbox_id,
-            f"{env_prefix} omnigent host --server {shlex.quote(server_url)}",
+            f"cd {shlex.quote(workspace)} && {env_prefix} omnigent host --server {shlex.quote(server_url)}",
         )
         return workspace
 
