@@ -506,12 +506,49 @@ class ComposeProvider:
         branch_note = None
         if handle.golden_head:
             git_root = self._git_root(handle.app, ws, handle.target_repo)
+
+            # Auto-commit uncommitted changes if the agent modified or created files but didn't run git commit
+            st = self._run(["git", "-C", str(git_root), "status", "--porcelain"], ws, env, timeout=15)
+            if st and st.stdout.strip():
+                log.info("finalize: found uncommitted changes in %s for %s — auto-committing", git_root, handle.lease_id)
+                self._run(["git", "-C", str(git_root), "add", "-A"], ws, env, timeout=15)
+                self._run(["git", "-C", str(git_root), "-c", "user.name=Meeseek Notary", "-c", "user.email=notary@meeseek.local",
+                           "commit", "-m", f"feat: implement changes for {handle.ticket or handle.lease_id}"], ws, env, timeout=15)
+
             dr = self._run(["git", "-C", str(git_root), "diff", f"{handle.golden_head}..HEAD"],
                            ws, env, timeout=30)
             diff = dr.stdout if dr else ""
             if not diff.strip():
                 diff, branch_note = self._recover_stray_branch(
                     git_root, handle.golden_head, handle.lease_id, ws, env)
+
+            # Composite app fallback: if diff is still empty, check other composite repos for uncommitted/committed changes
+            if not diff.strip():
+                composite_repos = self.valid_target_repos(handle.app)
+                for repo in composite_repos:
+                    if repo == handle.target_repo:
+                        continue
+                    cand_root = ws / repo
+                    if not (cand_root / ".git").exists():
+                        continue
+                    cand_st = self._run(["git", "-C", str(cand_root), "status", "--porcelain"], ws, env, timeout=15)
+                    if cand_st and cand_st.stdout.strip():
+                        log.info("finalize: found uncommitted changes in alternate composite repo %s — auto-committing", repo)
+                        self._run(["git", "-C", str(cand_root), "add", "-A"], ws, env, timeout=15)
+                        self._run(["git", "-C", str(cand_root), "-c", "user.name=Meeseek Notary", "-c", "user.email=notary@meeseek.local",
+                                   "commit", "-m", f"feat: implement changes for {handle.ticket or handle.lease_id}"], ws, env, timeout=15)
+                    cand_dr = self._run(["git", "-C", str(cand_root), "diff", f"{handle.golden_head}..HEAD"], ws, env, timeout=30)
+                    cand_diff = cand_dr.stdout if cand_dr else ""
+                    if not cand_diff.strip():
+                        cand_diff, _ = self._recover_stray_branch(
+                            cand_root, handle.golden_head, handle.lease_id, ws, env)
+                    if cand_diff.strip():
+                        log.info("finalize: detected changes in alternate composite repo '%s'", repo)
+                        handle.target_repo = repo
+                        git_root = cand_root
+                        diff = cand_diff
+                        branch_note = f"Changes were made in composite repo '{repo}'."
+                        break
 
         # services booted vs absent (D11).
         booted, absent = self._service_status(dc, ws, env, m)

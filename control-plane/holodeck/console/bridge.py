@@ -81,11 +81,11 @@ EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
 2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
 
 Do not push a branch or open a pull request yourself, even a draft — that step \
-belongs to Meeseek, not you. Commit your work on the branch that's already \
-checked out in this session — do not create or switch to a new branch, even one \
+belongs to Meeseek, not you. You MUST commit your work on the branch that's already \
+checked out in this session (`git add -A && git commit -m "feat: implement changes for {key}"`) — do not create or switch to a new branch, even one \
 named after the ticket; Meeseek's own verification diffs the branch that was \
 already prepared for you, not whichever one you happen to leave checked out. \
-Once your change is implemented and you've run the \
+Once your change is implemented, committed, and you've run the \
 targeted test in this session to self-verify it, stop and post a summary of what \
 changed, referencing the Jira key `{key}`, ending with this exact line so the \
 reporter knows precisely what to do next:
