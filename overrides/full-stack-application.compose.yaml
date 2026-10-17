@@ -135,6 +135,7 @@ services:
       # Redirects vite.config.ts's proxy target from its host-oriented
       # default (localhost:18000) to the in-network service name.
       VITE_API_PROXY_TARGET: "http://backend:8000"
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "${FRONTEND_PORT:-13000}:5173"
     volumes:
