@@ -243,6 +243,8 @@ class ConsoleManager:
             raise ConsoleNotFound(f"no task {ticket!r}")
         verdict = parse_verdict(text)
         is_plan_approval = rec.plan_only and (verdict is True or text.strip().lower() in ("approve", "yes", "proceed"))
+        if rec.workflow_state == "GUARDRAIL_BLOCKED" and (verdict is True or text.strip().lower() in ("approve", "yes", "proceed")):
+            rec.guardrail_approved = True
         msg_to_send = text
         if is_plan_approval:
             msg_to_send = "Plan approved. You may now proceed directly with implementing the plan."
@@ -295,7 +297,8 @@ class ConsoleManager:
         return rec
 
     def finalize(self, ticket: str, *, ticket_summary: Optional[str] = None,
-                 issue_type: Optional[str] = None) -> tuple[TaskRecord, dict]:
+                 issue_type: Optional[str] = None,
+                 approve_guardrails: Optional[bool] = None) -> tuple[TaskRecord, dict]:
         """Human-triggered notary step. Calls the real `LeaseService.finalize()`
         host-side — re-derives readiness/tests/diff and opens the PR itself
         (if enabled) — instead of trusting anything the agent self-reported.
@@ -309,6 +312,11 @@ class ConsoleManager:
         rec = self.store.get(ticket)
         if rec is None:
             raise ConsoleNotFound(f"no task {ticket!r}")
+        if approve_guardrails is None:
+            approve_guardrails = getattr(rec, "guardrail_approved", False)
+        if approve_guardrails:
+            rec.guardrail_approved = True
+            self.store.put(rec)
         agent_summary = None
         if rec.stable_agent_message:
             idx = rec.stable_agent_message.find("Your action:")
@@ -317,7 +325,8 @@ class ConsoleManager:
         try:
             evidence = self.client.finalize(
                 rec.lease_id, agent_summary=agent_summary,
-                ticket_summary=ticket_summary, issue_type=issue_type)
+                ticket_summary=ticket_summary, issue_type=issue_type,
+                approve_guardrails=approve_guardrails)
         except LeaseClientError as e:
             raise ConsoleError(str(e))
         if evidence.get("pr_url"):

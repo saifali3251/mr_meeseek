@@ -29,6 +29,8 @@ class FinalizeRequest(BaseModel):
     issue_type: Optional[str] = Field(
         None, description="the Jira issue's type name (Bug/Task/Story/Epic/...); "
                           "maps to the PR title's conventional-commit prefix")
+    approve_guardrails: bool = Field(
+        False, description="Explicit human override to authorize blast radius guardrails and permit PR creation")
 
 
 class AcquireRequest(BaseModel):

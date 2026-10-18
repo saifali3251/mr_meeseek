@@ -64,6 +64,11 @@ else
   done
 fi
 
+if [[ -d "$HOLO_SRC/test_frontend" && ! -d "$HOLO_SRC/test_frontend/node_modules" ]]; then
+  log "pre-installing node_modules in test_frontend..."
+  (cd "$HOLO_SRC/test_frontend" && npm install --silent) || warn "npm install in test_frontend failed (offline?)"
+fi
+
 # ---- 2. stage the (self-contained) compose override -----------------------
 log "staging composite compose file into $HOLO_SRC ..."
 cp "$HOLO_DIR/overrides/full-stack-application.compose.yaml" "$HOLO_SRC/$HOLO_COMPOSE_FILE"
@@ -129,7 +134,13 @@ done
 log "applying migrations: $HOLO_MIGRATE_CMD"
 dc exec -T backend /bin/sh -c "$HOLO_MIGRATE_CMD" || die "migrate failed"
 
-log "seeding: $HOLO_SEED_CMD"
+if [[ -f "$HOLO_SRC/test_backend/data/staging_dump.sql" ]]; then
+  log "restoring application staging data dump from test_backend/data/staging_dump.sql ..."
+  dc exec -T "$HOLO_PG_SERVICE" psql -U "$HOLO_PG_USER" -d "$HOLO_PG_DB" < "$HOLO_SRC/test_backend/data/staging_dump.sql" \
+    || die "staging dump restore failed"
+fi
+
+log "seeding / verifying: $HOLO_SEED_CMD"
 dc exec -T backend /bin/sh -c "$HOLO_SEED_CMD" || die "seed failed"
 
 # ---- 6. prove: seed rows present, frontend dev server live -----------------------

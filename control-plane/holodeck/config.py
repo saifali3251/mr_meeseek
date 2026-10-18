@@ -197,11 +197,29 @@ class Config:
 
     # --- finalize -> PR ---
     pr_enabled: bool = field(
-        default_factory=lambda: os.environ.get("HOLODECK_PR", "0") not in ("0", "false", "no"))
-    pr_base: str = field(default_factory=lambda: os.environ.get("HOLODECK_PR_BASE", "master"))
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_PR")
+            or os.environ.get("HOLODECK_PR")
+            or "1"
+        ) not in ("0", "false", "no"))
+    pr_base: str = field(
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_PR_BASE")
+            or os.environ.get("HOLODECK_PR_BASE")
+            or "main"
+        ))
     pr_draft: bool = field(
-        default_factory=lambda: os.environ.get("HOLODECK_PR_DRAFT", "1") not in ("0", "false", "no"))
-    pr_label: str = field(default_factory=lambda: os.environ.get("HOLODECK_PR_LABEL", "holodeck_preview"))
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_PR_DRAFT")
+            or os.environ.get("HOLODECK_PR_DRAFT")
+            or "1"
+        ) not in ("0", "false", "no"))
+    pr_label: str = field(
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_PR_LABEL")
+            or os.environ.get("HOLODECK_PR_LABEL")
+            or "holodeck_preview"
+        ))
 
     # per-exec wall-clock cap. A hung command is killed and returns exit 124.
     exec_timeout_s: int = field(default_factory=lambda: _int_env("HOLODECK_EXEC_TIMEOUT_S", 120))

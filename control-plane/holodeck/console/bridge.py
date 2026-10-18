@@ -72,19 +72,19 @@ You are working on Jira ticket {key}.
 Before planning or modifying any code, first inspect `CLAUDE.md` (or `AGENT_RULES.md`) in the repository root. \
 You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
 
-Scope the ticket and share your implementation plan, then proceed directly to \
-implementing it — no need to stop and wait for approval first.
+Proceed directly to inspecting the codebase with your file tools and implementing the required changes — no need to stop and wait for approval first. \
+(If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
 
 EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
 1. Preferred: If a coding sub-agent CLI (e.g. claude, codex, opencodex, cursor-agent, hermes, pi, or agy) is installed in this machine's PATH, you may dispatch the implementation plan to it.
 2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
 
 Do not push a branch or open a pull request yourself, even a draft — that step \
-belongs to Meeseek, not you. Commit your work on the branch that's already \
-checked out in this session — do not create or switch to a new branch, even one \
+belongs to Meeseek, not you. You MUST commit your work on the branch that's already \
+checked out in this session (`git add -A && git commit -m "feat: implement changes for {key}"`) — do not create or switch to a new branch, even one \
 named after the ticket; Meeseek's own verification diffs the branch that was \
 already prepared for you, not whichever one you happen to leave checked out. \
-Once your change is implemented and you've run the \
+Once your change is implemented, committed, and you've run the \
 targeted test in this session to self-verify it, stop and post a summary of what \
 changed, referencing the Jira key `{key}`, ending with this exact line so the \
 reporter knows precisely what to do next:
@@ -97,7 +97,17 @@ When you post a status update that reaches the ticket reporter, keep it focused 
 on the ticket itself: what you found, what you're doing, and what you need from \
 them. Leave out internal tooling/process details (which CLIs or sub-agents are \
 available, roster/preflight checks, etc.) unless it's something that actually \
-blocks their decision.
+blocks their decision. \
+CRITICAL OPERATIONAL RULES:
+1. Strict Execution Order:
+   a. Inspect existing files, components, and types first before editing.
+   b. Implement code modifications.
+   c. Run the verification/build command synchronously (`npm run build` or targeted test). Fix any compile or test errors until Exit 0.
+   d. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
+   e. ONLY AFTER steps a-d have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
+2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
+3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
+4. File Tools: For modifying existing files, prefer `replace_file_content`. When calling `write_to_file`, always supply the required argument `Overwrite: true` (or `false`).
 
 --- Ticket {key} ---
 """
@@ -291,6 +301,12 @@ class JiraBridge:
             parts = cmd.split(None, 1)
             return self._answer(key, parts[1] if len(parts) > 1 else "")
         if cmd.startswith(("approve", "yes")):
+            rec = self.manager.store.get(key)
+            if rec and (rec.workflow_state == "GUARDRAIL_BLOCKED" or getattr(rec, "guardrail_approved", False)):
+                rec.guardrail_approved = True
+                self.manager.store.put(rec)
+                self._say(key, "Meeseek: ✅ Guardrail override authorized by human approval. Finalizing and opening Pull Request...")
+                return self._finalize(key, approve_guardrails=True)
             return self._answer(key, "yes")
         if cmd.startswith(("decline", "reject", "no")):
             return self._answer(key, "no")
@@ -330,7 +346,9 @@ class JiraBridge:
         spec = issue.get("description") or None
         labels = issue.get("labels") or []
         plan_label = getattr(self.cfg, "jira_plan_label", "meeseek:plan-only")
-        plan_only = bool((spec and "/plan" in spec) or (plan_label in labels))
+        plan_markers = ("/plan", "plan-only", "plan only", "only plan", "just plan", "implementation plan only")
+        spec_lower = (spec or "").lower()
+        plan_only = bool(any(m in spec_lower for m in plan_markers) or (plan_label in labels))
         app = self.manager.cfg.app_key(self.manager.cfg.default_app)
         target_repo, repo_error = self._extract_target_repo(app, spec or "")
         if repo_error:
@@ -449,6 +467,12 @@ class JiraBridge:
     def _answer(self, key: str, text: str) -> str:
         """Route a human reply: a yes/no on a pending elicitation becomes an
         approval; anything else becomes open-ended guidance (a message)."""
+        existing_rec = self.manager.store.get(key)
+        if existing_rec and (existing_rec.workflow_state == "GUARDRAIL_BLOCKED" or getattr(existing_rec, "guardrail_approved", False)) and text.strip().lower() in ("approve", "yes", "proceed", "approved"):
+            existing_rec.guardrail_approved = True
+            self.manager.store.put(existing_rec)
+            self._say(key, "Meeseek: ✅ Guardrail override authorized by human approval. Finalizing and opening Pull Request...")
+            return self._finalize(key)
         try:
             rec, verdict = self.manager.answer(key, text)
         except ConsoleError as e:
@@ -464,7 +488,7 @@ class JiraBridge:
         self._say(key, "Meeseek 🔁 Guidance received. Continuing.")
         return "reiterated"
 
-    def _finalize(self, key: str) -> str:
+    def _finalize(self, key: str, approve_guardrails: Optional[bool] = None) -> str:
         """The explicit human trigger for the notary. Never automatic — the human
         decides the change is ready, then Meeseek (not the agent) re-verifies it
         host-side and opens the PR from that evidence."""
@@ -486,7 +510,8 @@ class JiraBridge:
 
         try:
             rec, evidence = self.manager.finalize(
-                key, ticket_summary=ticket_summary, issue_type=issue_type)
+                key, ticket_summary=ticket_summary, issue_type=issue_type,
+                approve_guardrails=approve_guardrails)
         except ConsoleError as e:
             self._say(key, f"Meeseek: finalize failed — {e}")
             return "error"
@@ -600,12 +625,13 @@ class JiraBridge:
                 or rec.pr_url):
             return  # Already finalized or delivered — never regress back to halted
 
-        if rec.session_state != "idle" or rec.waiting:
+        has_handoff = any(m in (rec.stable_agent_message or "") for m in _HANDOFF_MARKERS)
+        is_idle = (rec.session_state == "idle")
+        if (not is_idle and not has_handoff) or rec.waiting:
             if rec.halted:  # left "idle" (or picked up an elicitation) -> re-arm
                 rec.halted = False
                 self.manager.store.put(rec)
             return
-        has_handoff = any(m in (rec.stable_agent_message or "") for m in _HANDOFF_MARKERS)
         if not rec.stable_agent_message or not has_handoff:
             return  # idle, but hasn't actually handed off yet (e.g. mid-dispatch)
         if rec.halted:

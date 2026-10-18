@@ -382,7 +382,8 @@ class LeaseService:
             self._queue = remaining_queue
 
     def finalize(self, lease_id: str, *, agent_summary: Optional[str] = None,
-                 ticket_summary: Optional[str] = None, issue_type: Optional[str] = None) -> Evidence:
+                 ticket_summary: Optional[str] = None, issue_type: Optional[str] = None,
+                 approve_guardrails: bool = False) -> Evidence:
         lease = self._require(lease_id)
         target_repo = lease.target_repo or (lease.handle.target_repo if lease.handle else None)
         test_cmd = self._resolve_test_cmd(lease.app, lease.ticket, target_repo) or lease.ticket_test_cmd  # dynamic manifest lookup with lease fallback
@@ -394,9 +395,18 @@ class LeaseService:
         #
         # Guardrails (Phase 3 & Phase 4):
         # 1. Exit 0 is mandatory! If a test was configured and failed or timed out, PR is blocked.
-        # 2. Host Guardrails (Blast radius and AST integrity) must pass! If violated, PR is blocked.
+        # 2. Host Guardrails (Blast radius and AST integrity) must pass! If violated, PR is blocked
+        #    unless explicitly authorized by human approval (`approve_guardrails=True`).
         test_passed = (evidence.test_exit == 0) if evidence.test_cmd else True
         guardrail_passed = getattr(evidence, "guardrail_passed", True)
+        if approve_guardrails and not guardrail_passed:
+            log.info(
+                "finalize: guardrail violation (%s) overridden by human approval for %s — proceeding with PR creation",
+                getattr(evidence, "guardrail_reason", None), lease_id,
+            )
+            guardrail_passed = True
+            evidence.guardrail_passed = True
+
         if not evidence.test_timed_out and test_passed and guardrail_passed:
             if (self.cfg.pr_enabled and lease.handle is not None
                     and evidence.diff and evidence.diff.strip()):
