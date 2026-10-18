@@ -433,6 +433,7 @@ def build_ops_router(service: LeaseService, cfg: Config,
                     "exists": True,
                     "ticket": ticket,
                     "summary": issue.get("summary"),
+                    "description": issue.get("description"),
                     "issuetype": issue.get("issuetype"),
                     "labels": issue.get("labels", []),
                 }

@@ -441,6 +441,7 @@ export interface JiraVerifyResult {
   exists: boolean | null;
   ticket: string;
   summary?: string;
+  description?: string;
   issuetype?: string;
   labels?: string[];
   reason?: string;

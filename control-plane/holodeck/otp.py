@@ -76,21 +76,29 @@ class JiraOtpService:
         self.history: list[dict] = []
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.last_error: Optional[str] = None
+        self.last_status: str = "Uninitialized"
+        self.last_check_at: Optional[float] = None
 
     def start(self) -> None:
-        pw = getattr(self.cfg, "jira_evaluator_imap_password", "")
+        pw = (
+            getattr(self.cfg, "jira_evaluator_imap_password", "")
+            or ""
+        ).strip().replace(" ", "")
         user = (
             getattr(self.cfg, "jira_evaluator_imap_user", "")
             or getattr(self.cfg, "jira_evaluator_email", "")
-        )
+            or ""
+        ).strip()
+
         if not pw or not user:
-            log.info(
-                "Jira evaluator IMAP credentials not configured (HOLODECK_JIRA_EVALUATOR_IMAP_PASSWORD empty). "
-                "Manual /ops/jira/otp endpoint remains active."
-            )
+            msg = f"Jira evaluator IMAP credentials not configured: user={user!r}, password_provided={bool(pw)}. Set MEESEEK_JIRA_EVALUATOR_IMAP_PASSWORD."
+            self.last_status = msg
+            log.warning(msg)
             return
 
         self._stop_event.clear()
+        self.last_status = f"Starting IMAP poller for {user}..."
         self._thread = threading.Thread(
             target=self._poll_loop,
             name="jira-otp-imap-poller",
@@ -108,6 +116,7 @@ class JiraOtpService:
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
+        self.last_status = "Stopped"
         log.info("Jira evaluator IMAP poller stopped")
 
     def set_otp(
@@ -133,7 +142,8 @@ class JiraOtpService:
             # Keep up to 5 historical entries, avoiding consecutive identical duplicates
             if not self.history or self.history[0]["code"] != code_clean:
                 self.history = [item] + self.history[:4]
-        log.info("Received Jira OTP: %s (at %s)", code_clean, rec_formatted)
+        self.last_status = f"Active. Latest OTP: {code_clean}"
+        log.info("Jira OTP recorded: %s (at %s)", code_clean, rec_formatted)
         return item
 
     def get_state(self) -> dict:
@@ -144,6 +154,13 @@ class JiraOtpService:
         if latest:
             latest["age_seconds"] = max(0, int(time.time() - latest["received_at"]))
 
+        user = (
+            getattr(self.cfg, "jira_evaluator_imap_user", "")
+            or getattr(self.cfg, "jira_evaluator_email", "")
+            or ""
+        )
+        pw = (getattr(self.cfg, "jira_evaluator_imap_password", "") or "").strip()
+
         return {
             "evaluator_email": getattr(self.cfg, "jira_evaluator_email", "") or "",
             "evaluator_password": getattr(self.cfg, "jira_evaluator_password", "") or "",
@@ -152,6 +169,11 @@ class JiraOtpService:
             "latest_otp": latest,
             "history": hist,
             "imap_active": bool(self._thread and self._thread.is_alive()),
+            "imap_user": user,
+            "imap_password_configured": bool(pw),
+            "last_error": self.last_error,
+            "last_status": self.last_status,
+            "last_check_at": self.last_check_at,
         }
 
     def _poll_loop(self) -> None:
@@ -160,15 +182,20 @@ class JiraOtpService:
             try:
                 self._check_inbox()
             except Exception as e:
-                log.debug("Error in IMAP inbox check: %s", e)
+                self.last_error = str(e)
+                log.error("Error in IMAP inbox check: %s", e)
             self._stop_event.wait(interval)
 
     def _check_inbox(self) -> None:
         user = (
             getattr(self.cfg, "jira_evaluator_imap_user", "")
             or getattr(self.cfg, "jira_evaluator_email", "")
-        )
-        pw = getattr(self.cfg, "jira_evaluator_imap_password", "")
+            or ""
+        ).strip()
+        pw = (
+            getattr(self.cfg, "jira_evaluator_imap_password", "")
+            or ""
+        ).strip().replace(" ", "")
         server = getattr(self.cfg, "jira_evaluator_imap_server", "imap.gmail.com")
 
         if not user or not pw:
@@ -182,11 +209,17 @@ class JiraOtpService:
 
             status, data = client.search(None, "ALL")
             if status != "OK" or not data or not data[0]:
+                self.last_status = "Connected, INBOX empty"
+                self.last_error = None
+                self.last_check_at = time.time()
                 return
 
             msg_ids = data[0].split()
-            # Inspect last 5 messages, newest first
-            for mid in reversed(msg_ids[-5:]):
+            self.last_check_at = time.time()
+            self.last_error = None
+
+            # Inspect last 15 messages, newest first
+            for mid in reversed(msg_ids[-15:]):
                 status, msg_data = client.fetch(mid, "(RFC822)")
                 if status != "OK" or not msg_data:
                     continue
@@ -203,16 +236,22 @@ class JiraOtpService:
                 is_candidate = (
                     "atlassian" in from_hdr.lower()
                     or "atlassian" in subject.lower()
+                    or "jira" in from_hdr.lower()
                     or "verification" in subject.lower()
                     or "verification" in from_hdr.lower()
                     or "verify" in subject.lower()
                     or "security code" in subject.lower()
+                    or "code" in subject.lower()
                 )
                 if not is_candidate:
                     continue
 
-                body = _extract_body(msg)
-                m = re.search(r"\b([0-9]{6})\b", subject) or re.search(r"\b([0-9]{6})\b", body)
+                raw_body = _extract_body(msg)
+                # Strip HTML tags so tags around numbers don't interfere
+                clean_body = re.sub(r"<[^>]+>", " ", raw_body)
+
+                # Match 6 digit verification code in Subject or Body
+                m = re.search(r"\b([0-9]{6})\b", subject) or re.search(r"\b([0-9]{6})\b", clean_body)
                 if m:
                     code = m.group(1)
                     with self.lock:
@@ -232,6 +271,7 @@ class JiraOtpService:
                         subject=subject[:100],
                         from_addr=from_hdr[:100],
                     )
+                    log.info("IMAP: Extracted Jira OTP [%s] from email: %s", code, subject)
                     break
         finally:
             if client is not None:
@@ -243,4 +283,3 @@ class JiraOtpService:
                     client.logout()
                 except Exception:
                     pass
-

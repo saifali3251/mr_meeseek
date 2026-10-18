@@ -559,10 +559,13 @@ export const App: React.FC = () => {
           <JudgePlayground
             onRefresh={loadState}
             jiraBaseUrl={state?.jira_base || ""}
-            jiraProject={state?.jira?.project || "FSA"}
-            tasks={state?.runs || []}
-            leases={state?.leases || []}
-            onSelectWorkspacesTab={() => setActiveTab("workspaces")}
+            onNavigateToWorkspaces={(ticket) => {
+              if (ticket) {
+                const matching = state?.leases?.find((l) => l.ticket?.toUpperCase() === ticket.toUpperCase());
+                if (matching) setSelectedLeaseId(matching.lease_id);
+              }
+              setActiveTab("workspaces");
+            }}
           />
         )}
       </main>

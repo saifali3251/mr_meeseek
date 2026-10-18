@@ -93,7 +93,11 @@ export interface JiraOtpState {
   latest_otp: JiraOtpRecord | null;
   history: JiraOtpRecord[];
   imap_active: boolean;
+  imap_password_configured?: boolean;
+  last_error?: string | null;
+  last_status?: string | null;
 }
+
 
 
 export interface Environment {

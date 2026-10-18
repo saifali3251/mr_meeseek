@@ -25,7 +25,9 @@ log = logging.getLogger("holodeck.main")
 
 
 def build_app_for_serving(cfg: Config | None = None):
-    cfg = cfg or Config()
+    if cfg is None:
+        load_env_file(os.environ.get("HOLODECK_ENV_FILE") or default_env_file())
+        cfg = Config()
     db = Db(cfg.db_path)  # one DB for the one service — leases + console + onboarding tables
     service, reaper, teams, onboarding = build(cfg, db)
     reconcile(cfg, service)
