@@ -88,7 +88,8 @@ def build_router(manager: ConsoleManager) -> APIRouter:
             if bridge and hasattr(bridge, "_say") and hasattr(bridge, "prefix"):
                 try:
                     from holodeck.console.bridge import _finalize_summary
-                    body = _finalize_summary(evidence, prefix=bridge.prefix)
+                    baseline_url = manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
+                    body = _finalize_summary(evidence, prefix=bridge.prefix, baseline_url=baseline_url, preview_url=rec.preview_url)
                     bridge._say(ticket, body)
                 except Exception as e:
                     log.warning("Failed to post finalize summary to Jira for %s: %s", ticket, e)

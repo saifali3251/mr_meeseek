@@ -144,7 +144,7 @@ _FINISH_MARKER = "Your action:"
 _HANDOFF_MARKERS = ("Your action:", "What I need from you", "Blocker.")
 
 
-def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
+def _finalize_summary(ev: dict, prefix: str = "#meeseek", baseline_url: Optional[str] = None, preview_url: Optional[str] = None) -> str:
     """Render the notary's evidence as a short, human-readable comment — every
     field here was re-derived host-side, none of it came from the agent."""
     readiness = "✓ ready" if ev.get("readiness_ok") else "✕ not ready"
@@ -193,6 +193,15 @@ def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
             f"• **Database Integrity**: `✓ {seed}`\n"
             f"• **Git Diff**: `{diff}`"
         )
+        if preview_url:
+            summary += f"\n• **Live Sandbox Preview**: [{preview_url}]({preview_url})"
+        if baseline_url:
+            summary += f"\n• **Production Baseline**: [{baseline_url}]({baseline_url})"
+
+    branch_note = ev.get("branch_note")
+    if branch_note:
+        summary += f"\n\n⚠️ {branch_note}"
+    return summary
 
     branch_note = ev.get("branch_note")
     if branch_note:
@@ -381,14 +390,16 @@ class JiraBridge:
             self._say(key, msg)
             return "queued"
 
+        baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
         links = [(label, url) for label, url in
-                 (("Preview", rec.preview_url),) if url]
+                 (("Preview", rec.preview_url), ("Baseline", baseline_url)) if url]
         mode_hint = "Plan-only mode (`/plan` mandate active: formulating plan without code edits)" if plan_only else "In-sandbox coding underway..."
         msg = (
             f"🚀 **Meeseek on the job!**\n"
             f"*\"I'm Mr. Meeseeks, look at me! I've claimed ticket **{key}** and booted an isolated sandbox.\"*\n\n"
             f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
             f"• **Live Preview**: [{rec.preview_url}]({rec.preview_url})\n"
+            f"• **Production Baseline**: [{baseline_url}]({baseline_url})\n"
             f"• **Guardrails Active**: `CLAUDE.md` repository conventions pre-grounded\n"
             f"• **Status**: {mode_hint}"
         )
@@ -517,7 +528,8 @@ class JiraBridge:
             return "error"
         self._clear_halt(rec)
         pr = evidence.get("pr_url")
-        body = _finalize_summary(evidence, prefix=self.prefix)
+        baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
+        body = _finalize_summary(evidence, prefix=self.prefix, baseline_url=baseline_url, preview_url=rec.preview_url)
         if not pr:
             if not evidence.get("guardrail_passed", True):
                 body += f"\n\n🛑 **Pull Request Blocked**: Host blast-radius or AST guardrails tripped ({evidence.get('guardrail_reason')})."
@@ -532,6 +544,8 @@ class JiraBridge:
             links.append(("PR", pr))
         if rec.preview_url:
             links.append(("Preview", rec.preview_url))
+        if baseline_url:
+            links.append(("Baseline", baseline_url))
         self._say(key, body, links=links or None)
         return "finalized"
 

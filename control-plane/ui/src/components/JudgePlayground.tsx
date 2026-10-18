@@ -440,6 +440,35 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
           </h3>
         </div>
 
+        {/* Baseline vs Agent Changes Comparison Banner */}
+        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+              <Globe className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-white">Compare Before vs After Changes</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                  main branch
+                </span>
+              </div>
+              <span className="text-slate-400 block text-[11px] mt-0.5">
+                Inspect the unmodified baseline app first, then strike Meeseek to test the agent's live additions.
+              </span>
+            </div>
+          </div>
+          <a
+            href="https://p17000.34.93.137.146.sslip.io"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono text-xs border border-slate-700 transition-all self-start sm:self-auto whitespace-nowrap shadow-sm"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Open Baseline UI (Before) ↗</span>
+          </a>
+        </div>
+
         {/* Live Jira Description Box */}
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
