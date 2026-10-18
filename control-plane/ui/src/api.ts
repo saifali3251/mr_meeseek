@@ -436,6 +436,16 @@ export async function login(username: string, password: string): Promise<AuthUse
   return res.json();
 }
 
+export async function fetchAuthQuickFill(): Promise<{ admin?: string; superadmin?: string }> {
+  try {
+    const res = await fetch(`${BASE_URL}/ops/auth/quickfill`);
+    if (!res.ok) return {};
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
 export interface JiraVerifyResult {
   connected: boolean;
   exists: boolean | null;

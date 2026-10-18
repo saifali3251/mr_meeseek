@@ -560,6 +560,13 @@ def build_ops_router(service: LeaseService, cfg: Config,
 
         raise HTTPException(401, "Invalid username or password.")
 
+    @r.get("/ops/auth/quickfill")
+    def ops_auth_quickfill() -> dict:
+        return {
+            "admin": getattr(cfg, "admin_password", "") or "",
+            "superadmin": getattr(cfg, "superadmin_password", "") or "",
+        }
+
     return r
 
 
