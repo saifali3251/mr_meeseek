@@ -27,7 +27,7 @@ import threading
 from dataclasses import asdict
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Body, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -439,6 +439,39 @@ def build_ops_router(service: LeaseService, cfg: Config,
             return {"connected": True, "exists": False, "ticket": ticket}
         except Exception as e:
             return {"connected": True, "exists": False, "ticket": ticket, "detail": str(e)}
+
+    @r.get("/ops/jira/otp")
+    def ops_jira_otp_get(request: Request) -> dict:
+        otp_service = getattr(request.app.state, "jira_otp_service", None)
+        if otp_service:
+            return otp_service.get_state()
+        return {
+            "evaluator_email": getattr(cfg, "jira_evaluator_email", "") or "",
+            "evaluator_password": getattr(cfg, "jira_evaluator_password", "") or "",
+            "jira_url": getattr(cfg, "jira_base_url", "") or "",
+            "project": getattr(cfg, "jira_project", "") or "FSA",
+            "latest_otp": None,
+            "history": [],
+            "imap_active": False,
+        }
+
+    @r.post("/ops/jira/otp")
+    def ops_jira_otp_post(request: Request, payload: dict = Body(...)) -> dict:
+        code = payload.get("otp") or payload.get("code")
+        if not code:
+            raise HTTPException(400, "otp or code is required")
+        otp_service = getattr(request.app.state, "jira_otp_service", None)
+        if otp_service:
+            item = otp_service.set_otp(
+                code=str(code).strip(),
+                timestamp=payload.get("timestamp"),
+                subject=payload.get("subject", "Atlassian Verification Code"),
+                from_addr=payload.get("from", "noreply@id.atlassian.com"),
+            )
+            broadcaster.notify()
+            return {"status": "ok", "otp": item}
+        return {"status": "ok", "otp": {"code": str(code).strip()}}
+
 
     @r.post("/ops/onboard/validate-repo")
     async def ops_validate_repo(request: Request) -> dict:

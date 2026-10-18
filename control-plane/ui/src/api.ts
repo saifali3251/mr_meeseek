@@ -488,3 +488,39 @@ export async function sendChatMessage(messages: { role: string; content: string 
   return res.json();
 }
 
+export async function fetchJiraOtp(): Promise<import("./types").JiraOtpState> {
+  const res = await fetch(`${BASE_URL}/ops/jira/otp`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Jira OTP: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function finalizeTask(ticket: string): Promise<any> {
+  const authHeaders = getAuthHeaders();
+  const res = await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}/finalize`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Failed to finalize ${ticket}: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchTaskComments(ticket: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}/comments`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+

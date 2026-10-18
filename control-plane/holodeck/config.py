@@ -289,6 +289,33 @@ class Config:
     jira_plan_label: str = field(
         default_factory=lambda: os.environ.get("HOLODECK_JIRA_PLAN_LABEL", "meeseek:plan-only"))
     jira_webhook_secret: str = field(default_factory=lambda: os.environ.get("HOLODECK_JIRA_WEBHOOK_SECRET", ""))
+    # --- Jira Evaluator & Judge Demo credentials (OTP listener) ---
+    jira_evaluator_email: str = field(
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_JIRA_EVALUATOR_EMAIL")
+            or os.environ.get("HOLODECK_JIRA_EVALUATOR_EMAIL", "")
+        ))
+    jira_evaluator_password: str = field(
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_JIRA_EVALUATOR_PASSWORD")
+            or os.environ.get("HOLODECK_JIRA_EVALUATOR_PASSWORD", "")
+        ))
+    jira_evaluator_imap_server: str = field(
+        default_factory=lambda: os.environ.get("HOLODECK_JIRA_EVALUATOR_IMAP_SERVER", "imap.gmail.com"))
+    jira_evaluator_imap_user: str = field(
+        default_factory=lambda: (
+            os.environ.get("HOLODECK_JIRA_EVALUATOR_IMAP_USER")
+            or os.environ.get("MEESEEK_JIRA_EVALUATOR_EMAIL")
+            or os.environ.get("HOLODECK_JIRA_EVALUATOR_EMAIL", "")
+        ))
+    jira_evaluator_imap_password: str = field(
+        default_factory=lambda: (
+            os.environ.get("MEESEEK_JIRA_EVALUATOR_IMAP_PASSWORD")
+            or os.environ.get("HOLODECK_JIRA_EVALUATOR_IMAP_PASSWORD", "")
+        ))
+    jira_evaluator_imap_interval_s: int = field(
+        default_factory=lambda: _int_env("HOLODECK_JIRA_EVALUATOR_IMAP_INTERVAL_S", 3))
+
     # Maps a lease's published preview port -> the DNS domain that's actually
     # wired to serve it (e.g. the 3 admin.workspace-{one,two,three}.aibuildercup.io
     # provisioned domains for AI Builder Cup Hackathon) — used to build the "Live sandbox"
