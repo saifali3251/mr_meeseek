@@ -45,7 +45,7 @@ STATIC_SYSTEM_RUNBOOK = """
 ## 3. Workflow State Machine Stages
 1. STRIKE: Workspace requested via Jira ticket or UI modal. (FIFO Queued if capacity limit is reached).
 2. BOOT: CoW clone created, Docker containers booted, pre-seeded DB health check passed.
-3. CODING: Omnigent coding agent (Debby) applies code changes, file edits, and tools in sandbox.
+3. CODING: Omnigent Gemini Agent applies code changes, file edits, and tools in sandbox.
 4. PREVIEW: Hot reload active. Live interactive browser preview accessible on dynamic preview port. Human reviews changes.
 5. NOTARY: Impartial Host Notary runs HOLO_TEST_CMD and checks AST blast-radius.
 6. PR_DELIVERED: Exit 0 proof certified. Pull Request opened on GitHub with full evidence.
@@ -387,7 +387,7 @@ The following is the live status of the cluster at this exact second. Ground you
                 "**Jira Slash Commands:**\n\n"
                 "- `/meeseek strike` — Summon an isolated CoW workspace for this ticket\n"
                 "- `/meeseek test` — Run impartial Host Notary tests inside the container\n"
-                "- `/meeseek diff` — View current uncommitted changes made by Debby\n"
+                "- `/meeseek diff` — View current uncommitted changes made by the Gemini Agent\n"
                 "- `/meeseek finalize` — Verify Host Notary and create certified Pull Request\n"
                 "- `/meeseek extend` — Extend workspace TTL by 30 minutes\n"
                 "- `/meeseek destroy` — Immediately release and destroy workspace"

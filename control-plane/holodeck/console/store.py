@@ -30,7 +30,7 @@ class TaskRecord:
     notified_waiting: bool = False  # already posted a "needs input" comment to Jira
     elicitation_id: Optional[str] = None  # the outstanding decision the human must answer
     question: Optional[str] = None        # the agent's question text (posted to Jira)
-    agent_name: Optional[str] = None      # the bound Omnigent agent, e.g. "debby"
+    agent_name: Optional[str] = None      # the bound Omnigent agent, e.g. "gemini-agent"
     session_url: Optional[str] = None     # deep link into the Omnigent session UI
     last_action: Optional[str] = None     # last human verdict: approved/declined/guided
     last_action_at: Optional[float] = None  # when that verdict landed (epoch seconds)

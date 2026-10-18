@@ -128,7 +128,7 @@ function getStageDescription(stageKey: string, status: "COMPLETED" | "IN_PROGRES
         return "The autonomous agent analyzed Jira instructions, read repository conventions, planned code modifications, and applied edits in the sandbox.";
       }
       if (status === "IN_PROGRESS") {
-        return "The autonomous agent (Debby) is actively analyzing Jira instructions, navigating codebase conventions, and authoring code modifications in the sandbox.";
+        return "The autonomous agent (Gemini Agent) is actively analyzing Jira instructions, navigating codebase conventions, and authoring code modifications in the sandbox.";
       }
       return "The autonomous agent will read Jira task context, inspect repository conventions, and author code modifications once the environment is ready.";
 
@@ -350,7 +350,7 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 font-mono text-xs mee-facts">
               <div>
                 <span className="text-slate-400 text-xs block mb-1">Active Persona</span>
-                <span className="text-cyan-300 font-bold">Debby (Senior Full-Stack Engineer)</span>
+                <span className="text-cyan-300 font-bold">Gemini Agent (Senior Full-Stack Engineer)</span>
               </div>
               <div>
                 <span className="text-slate-400 text-xs block mb-1">In-Sandbox Tools</span>

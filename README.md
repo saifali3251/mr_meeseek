@@ -245,5 +245,5 @@ meeseek/
 - [x] **Host-Side Notary**: Independent readiness verification, seed-proof queries, and evidence generation.
 - [x] **FastAPI Control Plane**: Complete lease state machine, SQLite storage, and `/ops` monitoring console.
 - [ ] **Cloud-Native Substrates**: Automated provisioning on Google Cloud (Compute Engine / Artifact Registry) and AWS.
-- [ ] **Universal Agent Integration**: First-class connectors for Claude Code, Omnigent, and open-source coding harnesses.
+- [ ] **Universal Agent Integration**: First-class connectors for Google Gemini / Antigravity, Omnigent, and open-source coding harnesses.
 - [ ] **Scheduled Golden Refreshes**: Automated background golden rebuilds on main branch merges.

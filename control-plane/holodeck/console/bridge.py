@@ -76,7 +76,7 @@ Proceed directly to inspecting the codebase with your file tools and implementin
 (If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
 
 EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
-1. Preferred: If a coding sub-agent CLI (e.g. claude, codex, opencodex, cursor-agent, hermes, pi, or agy) is installed in this machine's PATH, you may dispatch the implementation plan to it.
+1. Preferred: If a coding sub-agent CLI (e.g. agy, gemini, codex, cursor-agent, or claude) is installed in this machine's PATH, you may dispatch the implementation plan to it.
 2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
 
 Do not push a branch or open a pull request yourself, even a draft — that step \
