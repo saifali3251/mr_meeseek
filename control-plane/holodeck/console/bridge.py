@@ -107,6 +107,7 @@ CRITICAL OPERATIONAL RULES:
    e. ONLY AFTER steps a-d have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
 2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
 3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
+4. File Tools: For modifying existing files, prefer `replace_file_content`. When calling `write_to_file`, always supply the required argument `Overwrite: true` (or `false`).
 
 --- Ticket {key} ---
 """
