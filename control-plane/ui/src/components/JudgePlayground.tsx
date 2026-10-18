@@ -222,16 +222,18 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
             <div className="min-w-0 pr-2">
               <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">Jira Email</span>
               <span className="text-xs font-mono font-bold text-white truncate block">
-                {otpState?.evaluator_email || "meeseek.judge@gmail.com"}
+                {otpState?.evaluator_email || "Configured via .env"}
               </span>
             </div>
-            <button
-              onClick={() => handleCopy(otpState?.evaluator_email || "meeseek.judge@gmail.com", "email")}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all text-xs flex-shrink-0"
-              title="Copy email"
-            >
-              {copiedKey === "email" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
+            {otpState?.evaluator_email && (
+              <button
+                onClick={() => handleCopy(otpState.evaluator_email!, "email")}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all text-xs flex-shrink-0"
+                title="Copy email"
+              >
+                {copiedKey === "email" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
 
           {/* Password */}
@@ -239,16 +241,18 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
             <div className="min-w-0 pr-2">
               <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider block">Jira Password</span>
               <span className="text-xs font-mono font-bold text-cyan-300 truncate block">
-                {otpState?.evaluator_password || "MeeseekJudge2026"}
+                {otpState?.evaluator_password || "••••••••"}
               </span>
             </div>
-            <button
-              onClick={() => handleCopy(otpState?.evaluator_password || "MeeseekJudge2026", "password")}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all text-xs flex-shrink-0"
-              title="Copy password"
-            >
-              {copiedKey === "password" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
+            {otpState?.evaluator_password && (
+              <button
+                onClick={() => handleCopy(otpState.evaluator_password!, "password")}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all text-xs flex-shrink-0"
+                title="Copy password"
+              >
+                {copiedKey === "password" ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
 
           {/* Live OTP */}
