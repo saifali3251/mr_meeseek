@@ -158,8 +158,14 @@ export const App: React.FC = () => {
     });
   }, [state?.leases, selectedApp]);
 
-  // Day / night theme (matches the landing page). Saved per browser.
-  const [isDark, setIsDark] = useState<boolean>(() => document.documentElement.classList.contains("dark"));
+  // Day / night theme (matches the landing page). Saved per browser. Default: light
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("meeseek-console-theme");
+      if (saved) return saved === "dark";
+    } catch {}
+    return false;
+  });
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
     try { localStorage.setItem("meeseek-console-theme", isDark ? "dark" : "light"); } catch (e) {}
