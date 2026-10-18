@@ -66,6 +66,55 @@ def _extract_body(msg) -> str:
     return "\n".join(texts)
 
 
+def _extract_otp_code(subject: str, body: str) -> Optional[str]:
+    """Extract 6-character alphanumeric Atlassian verification code from email subject or body."""
+    # 1. Subject match with digit: "Your verification code: PKRKB5" or "123456"
+    m_subj = re.search(r"\b([A-Z0-9]{6})\b", subject)
+    if m_subj and any(c.isdigit() for c in m_subj.group(1)):
+        return m_subj.group(1).upper()
+
+    combined = f"{subject} {body}"
+
+    # 2. Targeted contextual patterns (Atlassian's standard email phrases)
+    context_patterns = [
+        r"(?:enter the following code|enter the code|following code|verification code|security code)[:\s]+([A-Za-z0-9]{6})\b",
+        r"code requested[:\s]+([A-Za-z0-9\s]{6,15})",
+        r"to access [^,]+, enter (?:the following )?code[:\s]+([A-Za-z0-9]{6})\b",
+        r"(?:your )?(?:verification|security)?\s*code is[:\s]+([A-Za-z0-9]{6})\b",
+    ]
+    for pat in context_patterns:
+        m = re.search(pat, combined, re.IGNORECASE)
+        if m:
+            cand = "".join(c for c in m.group(1) if c.isalnum()).upper()
+            if len(cand) == 6:
+                return cand
+
+    # 3. Spaced letters/digits like "P K R K B 5" (preview header in Atlassian emails)
+    m_spaced = re.search(r"\b([A-Za-z0-9]\s+[A-Za-z0-9]\s+[A-Za-z0-9]\s+[A-Za-z0-9]\s+[A-Za-z0-9]\s+[A-Za-z0-9])\b", combined)
+    if m_spaced:
+        cand = "".join(c for c in m_spaced.group(1) if c.isalnum()).upper()
+        if len(cand) == 6:
+            return cand
+
+    # 4. Standard 6-digit numeric OTP
+    m_digits = re.search(r"\b([0-9]{6})\b", combined)
+    if m_digits:
+        return m_digits.group(1)
+
+    # 5. Standalone 6-character alphanumeric tokens (must contain a digit to avoid ordinary English words)
+    stop_words = {
+        "ACCESS", "ACTION", "ATLASSIAN", "VERIFY", "SECURITY", "SYSTEM",
+        "BROWSER", "DEVICE", "ENABLE", "UPDATE", "PLEASE", "CHROME",
+        "SAFARI", "STATUS", "COOKIE", "DOMAIN", "NEARLY"
+    }
+    tokens = re.findall(r"\b([A-Z0-9]{6})\b", combined)
+    for tok in tokens:
+        if tok not in stop_words and any(c.isdigit() for c in tok):
+            return tok
+
+    return None
+
+
 class JiraOtpService:
     """Manages extraction and in-memory caching of Atlassian login verification codes."""
 
@@ -126,7 +175,7 @@ class JiraOtpService:
         subject: str = "Atlassian Verification Code",
         from_addr: str = "noreply@id.atlassian.com",
     ) -> dict:
-        code_clean = "".join(c for c in str(code) if c.isdigit())[:6]
+        code_clean = "".join(c for c in str(code) if c.isalnum()).upper()[:6]
         rec_time = float(timestamp) if timestamp is not None else time.time()
         rec_formatted = datetime.fromtimestamp(rec_time).strftime("%I:%M:%S %p")
 
@@ -183,6 +232,7 @@ class JiraOtpService:
                 self._check_inbox()
             except Exception as e:
                 self.last_error = str(e)
+                self.last_status = f"IMAP Error: {e}"
                 log.error("Error in IMAP inbox check: %s", e)
             self._stop_event.wait(interval)
 
@@ -199,6 +249,7 @@ class JiraOtpService:
         server = getattr(self.cfg, "jira_evaluator_imap_server", "imap.gmail.com")
 
         if not user or not pw:
+            self.last_status = "Standby: MEESEEK_JIRA_EVALUATOR_IMAP_PASSWORD not configured"
             return
 
         client = None
@@ -209,7 +260,7 @@ class JiraOtpService:
 
             status, data = client.search(None, "ALL")
             if status != "OK" or not data or not data[0]:
-                self.last_status = "Connected, INBOX empty"
+                self.last_status = f"Connected to {server}, INBOX empty"
                 self.last_error = None
                 self.last_check_at = time.time()
                 return
@@ -218,8 +269,8 @@ class JiraOtpService:
             self.last_check_at = time.time()
             self.last_error = None
 
-            # Inspect last 15 messages, newest first
-            for mid in reversed(msg_ids[-15:]):
+            # Inspect last 20 messages, newest first
+            for mid in reversed(msg_ids[-20:]):
                 status, msg_data = client.fetch(mid, "(RFC822)")
                 if status != "OK" or not msg_data:
                     continue
@@ -237,23 +288,24 @@ class JiraOtpService:
                     "atlassian" in from_hdr.lower()
                     or "atlassian" in subject.lower()
                     or "jira" in from_hdr.lower()
+                    or "jira" in subject.lower()
                     or "verification" in subject.lower()
                     or "verification" in from_hdr.lower()
                     or "verify" in subject.lower()
+                    or "verifying" in subject.lower()
                     or "security code" in subject.lower()
+                    or "code requested" in subject.lower()
                     or "code" in subject.lower()
                 )
                 if not is_candidate:
                     continue
 
                 raw_body = _extract_body(msg)
-                # Strip HTML tags so tags around numbers don't interfere
                 clean_body = re.sub(r"<[^>]+>", " ", raw_body)
+                clean_body = re.sub(r"\s+", " ", clean_body)
 
-                # Match 6 digit verification code in Subject or Body
-                m = re.search(r"\b([0-9]{6})\b", subject) or re.search(r"\b([0-9]{6})\b", clean_body)
-                if m:
-                    code = m.group(1)
+                code = _extract_otp_code(subject, clean_body)
+                if code:
                     with self.lock:
                         if self.latest_otp and self.latest_otp.get("code") == code:
                             break
@@ -271,8 +323,11 @@ class JiraOtpService:
                         subject=subject[:100],
                         from_addr=from_hdr[:100],
                     )
-                    log.info("IMAP: Extracted Jira OTP [%s] from email: %s", code, subject)
+                    log.info("IMAP: Extracted Jira verification code [%s] from email: %s", code, subject)
                     break
+            else:
+                if not self.latest_otp:
+                    self.last_status = f"Connected to {server} ({user}) - Waiting for login code"
         finally:
             if client is not None:
                 try:

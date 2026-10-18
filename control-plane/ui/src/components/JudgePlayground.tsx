@@ -32,6 +32,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
   onNavigateToWorkspaces,
 }) => {
   const [ticketKey, setTicketKey] = useState<string>("FSA-32");
+  const [jiraTicketKey, setJiraTicketKey] = useState<string>("FSA-65");
   const [jiraData, setJiraData] = useState<JiraVerifyResult | null>(null);
   const [loadingJira, setLoadingJira] = useState<boolean>(true);
   const [isTriggering, setIsTriggering] = useState<boolean>(false);
@@ -189,12 +190,17 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
                   Method 1 · Full Native Jira Experience (Recommended)
                 </span>
                 <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                  otpState?.imap_active
+                  otpState?.imap_active && !otpState?.last_error
                     ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                     : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                 }`}>
-                  {otpState?.imap_active ? "● 2FA Bridge Active" : "○ 2FA Standby"}
+                  {otpState?.imap_active && !otpState?.last_error ? "● 2FA Bridge Active" : "○ 2FA Standby"}
                 </span>
+                {otpState?.last_error && (
+                  <span className="text-[10px] font-mono text-amber-300 bg-amber-950/60 border border-amber-500/30 px-2 py-0.5 rounded-full max-w-[220px] truncate" title={otpState.last_error}>
+                    ⚠️ {otpState.last_error}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-300 mt-1">
                 Log into our Jira Cloud workspace to create or label tickets directly. Verification codes appear here in real-time.
@@ -203,15 +209,25 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
           </div>
 
           {jiraBaseUrl && (
-            <a
-              href={`${jiraBaseUrl.replace(/\/$/, "")}/jira/your-work`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md shadow-cyan-500/20 transition-all self-start sm:self-auto whitespace-nowrap"
-            >
-              <span>Open Jira Cloud</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            <div className="flex items-center space-x-2 self-start sm:self-auto">
+              <span className="text-xs font-mono text-slate-400 hidden sm:inline">Ticket Key:</span>
+              <input
+                type="text"
+                value={jiraTicketKey}
+                onChange={(e) => setJiraTicketKey(e.target.value.toUpperCase())}
+                placeholder="FSA-65"
+                className="w-24 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-mono text-xs focus:outline-none focus:border-cyan-400"
+              />
+              <a
+                href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${(jiraTicketKey || "FSA-65").trim()}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md shadow-cyan-500/20 transition-all whitespace-nowrap"
+              >
+                <span>Open Jira ticket {jiraTicketKey.trim() || "FSA-65"}</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
           )}
         </div>
 
@@ -321,7 +337,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-300">
             <span className="flex items-center space-x-1.5 bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
               <span className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-[10px] font-bold border border-cyan-500/30">1</span>
-              <span>Open any ticket (e.g. <span className="text-cyan-300 font-semibold">FSA-32</span>)</span>
+              <span>Open ticket (e.g. <span className="text-cyan-300 font-semibold">{jiraTicketKey.trim() || "FSA-65"}</span>)</span>
             </span>
             <span className="text-slate-600 hidden sm:inline">➔</span>
             <span className="flex items-center space-x-1.5 bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
@@ -331,7 +347,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
             <span className="text-slate-600 hidden sm:inline">➔</span>
             <span className="flex items-center space-x-1.5 bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
               <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px] font-bold border border-emerald-500/30">3</span>
-              <span>Comment <code className="text-emerald-300 bg-emerald-950/80 px-1 py-0.5 rounded font-bold border border-emerald-500/30">/meeseek finalize</code></span>
+              <span>After agent responds with implementation, comment <code className="text-emerald-300 bg-emerald-950/80 px-1 py-0.5 rounded font-bold border border-emerald-500/30">/meeseek finalize</code></span>
             </span>
           </div>
         </div>
