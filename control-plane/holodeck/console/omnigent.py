@@ -54,7 +54,7 @@ class SessionStatus:
     elicitation_id: Optional[str] = None
     question: Optional[str] = None
     # Surfaced on the console so a run reads as more than an id:
-    agent_name: Optional[str] = None   # the bound agent, e.g. "debby"
+    agent_name: Optional[str] = None   # the bound agent, e.g. "gemini-agent"
     session_url: Optional[str] = None  # deep link into the Omnigent session UI
     # The agent's most recent authored turn, if any have landed yet. None until
     # the agent has replied at least once — see HttpOmnigentClient.status() for
@@ -252,7 +252,7 @@ class HttpOmnigentClient:
 
     def _ensure_agent(self) -> Optional[str]:
         """Agent id to bind the session to: HOLODECK_OMNIGENT_AGENT if set (id or
-        name substring, e.g. 'claude'), else the first agent from GET /v1/agents
+        name substring, e.g. 'gemini'), else the first agent from GET /v1/agents
         (matches the smoke script's auto-discovery)."""
         d = self._req("GET", "/v1/agents")
         agents = d.get("data", d) if isinstance(d, dict) else d

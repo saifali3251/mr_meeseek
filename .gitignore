@@ -5,7 +5,11 @@ ws/
 
 # per-machine config (paths, host-specific build commands) — never commit
 holodeck.local.env
-.env.local
+holodeck.env
+.env
+.env.*
+*.env
+*.env.*
 
 # holodeck: never commit bytecode
 __pycache__/

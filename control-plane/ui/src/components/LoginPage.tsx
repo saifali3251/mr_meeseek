@@ -12,7 +12,7 @@ import {
   Loader2
 } from "lucide-react";
 import { AuthUser } from "../types";
-import { login } from "../api";
+import { login, fetchAuthQuickFill } from "../api";
 import meeseekIcon from "../assets/meeseek-icon.webp";
 import ufo from "../assets/login/ufo.webp";
 import pSaturn from "../assets/login/p-saturn.webp";
@@ -33,6 +33,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDark = false, o
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [quickFill, setQuickFill] = useState<{ admin?: string; superadmin?: string }>({});
+
+  React.useEffect(() => {
+    fetchAuthQuickFill().then((data) => {
+      if (data) setQuickFill(data);
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +72,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDark = false, o
 
   const handleSelectRole = (role: string) => {
     setUsername(role);
+    if (role === "admin" && quickFill.admin) {
+      setPassword(quickFill.admin);
+    } else if (role === "superadmin" && quickFill.superadmin) {
+      setPassword(quickFill.superadmin);
+    }
+    setError(null);
   };
 
   return (

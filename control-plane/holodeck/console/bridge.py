@@ -69,14 +69,14 @@ def _as_int(v) -> int:
 _BEHAVIOR_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
-Before planning or modifying any code, first inspect `CLAUDE.md` (or `AGENT_RULES.md`) in the repository root. \
+Before planning or modifying any code, first inspect `AGENT_RULES.md` in the repository root. \
 You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
 
 Proceed directly to inspecting the codebase with your file tools and implementing the required changes — no need to stop and wait for approval first. \
 (If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
 
 EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
-1. Preferred: If a coding sub-agent CLI (e.g. claude, codex, opencodex, cursor-agent, hermes, pi, or agy) is installed in this machine's PATH, you may dispatch the implementation plan to it.
+1. Preferred: If a coding sub-agent CLI (e.g. agy, gemini, codex, cursor-agent, or claude) is installed in this machine's PATH, you may dispatch the implementation plan to it.
 2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
 
 Do not push a branch or open a pull request yourself, even a draft — that step \
@@ -103,8 +103,11 @@ CRITICAL OPERATIONAL RULES:
    a. Inspect existing files, components, and types first before editing.
    b. Implement code modifications.
    c. Run the verification/build command synchronously (`npm run build` or targeted test). Fix any compile or test errors until Exit 0.
-   d. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
-   e. ONLY AFTER steps a-d have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
+   d. Do NOT run dependency install commands (e.g. do NOT run `npm install`, `pip install`). All required packages and node_modules are already pre-installed.
+   e. Do NOT run extraneous linting tools or formatters (e.g. do NOT run `eslint`, `npm run lint`, or `prettier`). Only verify via `npm run build` or targeted test suite.
+   f. Do NOT create or modify repository configuration files (such as `eslint.config.js`, `tsconfig.json`, `vite.config.ts`) unless explicitly required by the ticket description.
+   g. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
+   h. ONLY AFTER steps a-g have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
 2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
 3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
 4. File Tools: For modifying existing files, prefer `replace_file_content`. When calling `write_to_file`, always supply the required argument `Overwrite: true` (or `false`).
@@ -116,7 +119,7 @@ CRITICAL OPERATIONAL RULES:
 _PLAN_ONLY_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
-Before planning, first inspect `CLAUDE.md` (or `AGENT_RULES.md`) in the repository root. \
+Before planning, first inspect `AGENT_RULES.md` in the repository root. \
 You must strictly adhere to the architecture conventions, typing rules, and verification patterns defined there.
 
 IMPORTANT PLAN-ONLY MANDATE:
@@ -144,7 +147,7 @@ _FINISH_MARKER = "Your action:"
 _HANDOFF_MARKERS = ("Your action:", "What I need from you", "Blocker.")
 
 
-def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
+def _finalize_summary(ev: dict, prefix: str = "#meeseek", baseline_url: Optional[str] = None, preview_url: Optional[str] = None) -> str:
     """Render the notary's evidence as a short, human-readable comment — every
     field here was re-derived host-side, none of it came from the agent."""
     readiness = "✓ ready" if ev.get("readiness_ok") else "✕ not ready"
@@ -193,6 +196,10 @@ def _finalize_summary(ev: dict, prefix: str = "#meeseek") -> str:
             f"• **Database Integrity**: `✓ {seed}`\n"
             f"• **Git Diff**: `{diff}`"
         )
+        if preview_url:
+            summary += f"\n• **Live Sandbox Preview**: [Sandbox Preview ↗]({preview_url})"
+        if baseline_url:
+            summary += f"\n• **Production Baseline**: [Fieldwork Baseline UI ↗]({baseline_url})"
 
     branch_note = ev.get("branch_note")
     if branch_note:
@@ -381,15 +388,18 @@ class JiraBridge:
             self._say(key, msg)
             return "queued"
 
+        baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
         links = [(label, url) for label, url in
                  (("Preview", rec.preview_url),) if url]
         mode_hint = "Plan-only mode (`/plan` mandate active: formulating plan without code edits)" if plan_only else "In-sandbox coding underway..."
+        preview_desc = f"[{rec.preview_url}]({rec.preview_url})" if rec.preview_url else "Ephemeral sandbox booting..."
         msg = (
             f"🚀 **Meeseek on the job!**\n"
             f"*\"I'm Mr. Meeseeks, look at me! I've claimed ticket **{key}** and booted an isolated sandbox.\"*\n\n"
             f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
-            f"• **Live Preview**: [{rec.preview_url}]({rec.preview_url})\n"
-            f"• **Guardrails Active**: `CLAUDE.md` repository conventions pre-grounded\n"
+            f"• **Live Preview**: {preview_desc}\n"
+            f"• **Production Baseline**: [Fieldwork Baseline UI ↗]({baseline_url})\n"
+            f"• **Guardrails Active**: `AGENT_RULES.md` repository conventions pre-grounded\n"
             f"• **Status**: {mode_hint}"
         )
         self._say(key, msg, links=links or None)
@@ -517,7 +527,8 @@ class JiraBridge:
             return "error"
         self._clear_halt(rec)
         pr = evidence.get("pr_url")
-        body = _finalize_summary(evidence, prefix=self.prefix)
+        baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
+        body = _finalize_summary(evidence, prefix=self.prefix, baseline_url=baseline_url, preview_url=rec.preview_url)
         if not pr:
             if not evidence.get("guardrail_passed", True):
                 body += f"\n\n🛑 **Pull Request Blocked**: Host blast-radius or AST guardrails tripped ({evidence.get('guardrail_reason')})."
@@ -530,8 +541,6 @@ class JiraBridge:
         links = []
         if pr:
             links.append(("PR", pr))
-        if rec.preview_url:
-            links.append(("Preview", rec.preview_url))
         self._say(key, body, links=links or None)
         return "finalized"
 

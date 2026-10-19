@@ -25,7 +25,9 @@ log = logging.getLogger("holodeck.main")
 
 
 def build_app_for_serving(cfg: Config | None = None):
-    cfg = cfg or Config()
+    if cfg is None:
+        load_env_file(os.environ.get("HOLODECK_ENV_FILE") or default_env_file())
+        cfg = Config()
     db = Db(cfg.db_path)  # one DB for the one service — leases + console + onboarding tables
     service, reaper, teams, onboarding = build(cfg, db)
     reconcile(cfg, service)
@@ -48,6 +50,11 @@ def build_app_for_serving(cfg: Config | None = None):
     app.state.db = db
     app.state.teams = teams
     app.state.onboarding = onboarding
+    from holodeck.otp import JiraOtpService
+    jira_otp_service = JiraOtpService(cfg)
+    jira_otp_service.start()
+    app.state.jira_otp_service = jira_otp_service
+
     # Co-locate the console (trigger + board) in the same service for the MVP,
     # sharing the same DB. It talks to the lease API over loopback HTTP
     # (cfg.console_lease_url), so it can still be split out later with a URL change.

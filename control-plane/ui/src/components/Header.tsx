@@ -2,7 +2,9 @@ import React from "react";
 import { 
   LogOut,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  Globe,
+  HelpCircle
 } from "lucide-react";
 import { KPIs, Team, AuthUser } from "../types";
 import meeseekIcon from "../assets/meeseek-icon.webp";
@@ -49,16 +51,26 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </a>
 
-          {/* Right Bar: Connection indicator, Theme toggle & Auth Session */}
+          {/* Right Bar: Baseline App link, Theme toggle & Auth Session */}
           <div className="flex items-center space-x-3">
-            {/* Real-time SSE indicator */}
-            <div className={`hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border transition-colors ${
-              isLiveConnected 
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
-                : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${isLiveConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
-              <span>{isLiveConnected ? "Real-time ⚡" : "Connecting..."}</span>
+            {/* Fieldwork Baseline UI Button with Info Tooltip */}
+            <div className="relative group">
+              <a
+                href="https://p17000.34.93.137.146.sslip.io"
+                target="_blank"
+                rel="noreferrer"
+                className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-semibold border bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-400/60 transition-all shadow-sm"
+              >
+                <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Baseline App UI ↗</span>
+                <HelpCircle className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-300 transition-colors" />
+              </a>
+
+              {/* Tooltip on hover */}
+              <div className="absolute right-0 top-full mt-2 hidden group-hover:block z-50 w-72 p-3 rounded-xl bg-slate-900 border border-slate-700 text-[11px] text-slate-300 shadow-2xl leading-relaxed font-sans">
+                <span className="font-bold text-white block mb-1">🌐 Fieldwork Production Baseline</span>
+                This is the live, unmodified application running on the <code className="text-cyan-300 bg-slate-950 px-1 py-0.5 rounded">main</code> branch. Compare it against the agent's ephemeral sandbox preview to verify changes.
+              </div>
             </div>
 
             {/* Day / night toggle */}

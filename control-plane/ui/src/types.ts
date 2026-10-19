@@ -72,7 +72,33 @@ export interface TaskRecord {
   pr_url?: string;
   plan_only?: boolean;
   halted?: boolean;
+  agent_message?: string;
+  stable_agent_message?: string;
 }
+
+export interface JiraOtpRecord {
+  code: string;
+  received_at: number;
+  received_at_formatted: string;
+  subject?: string;
+  from?: string;
+  age_seconds?: number;
+}
+
+export interface JiraOtpState {
+  evaluator_email: string;
+  evaluator_password?: string;
+  jira_url: string;
+  project: string;
+  latest_otp: JiraOtpRecord | null;
+  history: JiraOtpRecord[];
+  imap_active: boolean;
+  imap_password_configured?: boolean;
+  last_error?: string | null;
+  last_status?: string | null;
+}
+
+
 
 export interface Environment {
   app: string;
