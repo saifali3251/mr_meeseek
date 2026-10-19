@@ -69,8 +69,7 @@ def _as_int(v) -> int:
 _BEHAVIOR_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
-Before planning or modifying any code, first inspect `AGENT_RULES.md` in the repository root. \
-You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
+All `AGENT_RULES.md` repository architecture conventions, strict typing rules (zero `any` in TypeScript, full type annotations and Pydantic schemas in Python), and verification rules are already pre-grounded below — do NOT call `view_file` on `AGENT_RULES.md` or `CLAUDE.md`.
 
 Proceed directly to inspecting the codebase with your file tools and implementing the required changes — no need to stop and wait for approval first. \
 (If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
@@ -104,13 +103,13 @@ CRITICAL OPERATIONAL RULES:
    b. Implement code modifications.
    c. Run the verification/build command synchronously (`npm run build` or targeted test). Fix any compile or test errors until Exit 0.
    d. Do NOT run dependency install commands (e.g. do NOT run `npm install`, `pip install`). All required packages and node_modules are already pre-installed.
-   e. Do NOT run extraneous linting tools or formatters (e.g. do NOT run `eslint`, `npm run lint`, or `prettier`). Only verify via `npm run build` or targeted test suite.
+   e. Do NOT run `eslint`, `npm run lint`, or `prettier` (even if the ticket's acceptance criteria mentions `npm run lint`, because `package.json` does not have a `lint` script). For frontend tickets, verify exclusively via `npx --yes tsc -b && npm run build`.
    f. Do NOT create or modify repository configuration files (such as `eslint.config.js`, `tsconfig.json`, `vite.config.ts`) unless explicitly required by the ticket description.
    g. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
    h. ONLY AFTER steps a-g have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
 2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
 3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
-4. File Tools: For modifying existing files, prefer `replace_file_content`. When calling `write_to_file`, always supply the required argument `Overwrite: true` (or `false`).
+4. File Tools & Absolute Paths ONLY: Every file tool (`view_file`, `replace_file_content`, `write_to_file`) strictly requires a full ABSOLUTE path starting with `/` (never a relative path like `src/App.tsx` or `AGENT_RULES.md`). If you do not know the absolute working directory path yet, run `pwd` via `run_command` first, then prepend that absolute path to every file path. When calling `write_to_file`, always supply `Overwrite: true` (or `false`).
 
 --- Ticket {key} ---
 """
@@ -119,8 +118,7 @@ CRITICAL OPERATIONAL RULES:
 _PLAN_ONLY_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
-Before planning, first inspect `AGENT_RULES.md` in the repository root. \
-You must strictly adhere to the architecture conventions, typing rules, and verification patterns defined there.
+All `AGENT_RULES.md` repository architecture conventions and typing rules are already pre-grounded — do NOT call `view_file` on `AGENT_RULES.md` or `CLAUDE.md`. Always use full ABSOLUTE paths starting with `/` when calling `view_file` (run `pwd` via `run_command` first if you need the absolute working directory path).
 
 IMPORTANT PLAN-ONLY MANDATE:
 Do NOT modify any code, create any files, run git commits, or implement changes yet.
