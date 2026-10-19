@@ -158,10 +158,12 @@ class ConsoleStore:
         self.db = db or Db()  # default: private in-memory DB (tests / throwaway)
 
     def get(self, ticket: str) -> Optional[TaskRecord]:
-        rows = self.db.query("SELECT * FROM console_tasks WHERE ticket=?", (ticket,))
+        rows = self.db.query("SELECT * FROM console_tasks WHERE UPPER(ticket)=UPPER(?)", (ticket,))
         return _row_to_rec(rows[0]) if rows else None
 
     def put(self, rec: TaskRecord) -> None:
+        if rec.ticket:
+            rec.ticket = rec.ticket.upper()
         rec.updated_at = time.time()
         self.db.execute(_UPSERT, _rec_to_row(rec))
 
@@ -169,9 +171,8 @@ class ConsoleStore:
         return [_row_to_rec(r) for r in self.db.query("SELECT * FROM console_tasks")]
 
     def delete(self, ticket: str) -> None:
-        """Drop this ticket's record entirely — used by JiraBridge._reset() so a
-        finished ticket (halted, released) can be re-triggered from scratch via
-        the reset label, without which _start()'s one-session-per-ticket guard
-        (`self.manager.store.get(key)` returning anything at all) blocks it
-        forever. Idempotent: deleting a ticket with no record is a no-op."""
-        self.db.execute("DELETE FROM console_tasks WHERE ticket=?", (ticket,))
+        """Drop this ticket's record entirely so a finished or released ticket
+        can be re-triggered from scratch at any time. Case-insensitive on ticket
+        key so lowercase lease.ticket ('fsa-71') deletes uppercase 'FSA-71'."""
+        self.db.execute("DELETE FROM console_tasks WHERE UPPER(ticket)=UPPER(?)", (ticket,))
+

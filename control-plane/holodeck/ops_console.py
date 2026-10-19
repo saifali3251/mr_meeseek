@@ -524,6 +524,13 @@ def build_ops_router(service: LeaseService, cfg: Config,
         _check_lease_owned(lease.app, team)
         try:
             res = _lease_dict(service.release(lease_id), cfg)
+            if lease.ticket:
+                console = getattr(request.app.state, "console", None)
+                if console and hasattr(console, "store"):
+                    console.store.delete(lease.ticket)
+                bridge = getattr(request.app.state, "jira_bridge", None)
+                if bridge and hasattr(bridge, "cleanup_ticket_labels"):
+                    bridge.cleanup_ticket_labels(lease.ticket)
             broadcaster.notify()
             return res
         except KeyError:

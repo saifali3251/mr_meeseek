@@ -689,13 +689,8 @@ class ComposeProvider:
         if gh_tok:
             env["GH_TOKEN"] = gh_tok
             env["GITHUB_TOKEN"] = gh_tok
-        # idempotent: return the existing PR for this branch rather than duplicating.
-        view = self._run(["gh", "pr", "view", branch, "--json", "url", "-q", ".url"],
-                         git_root, env, timeout=30)
-        if view and view.returncode == 0 and view.stdout.strip().startswith("http"):
-            url = view.stdout.strip()
-            self._attach_label(git_root, env, url, label)  # re-finalize keeps the label current
-            return url
+        # Always force-push the latest branch state first so re-triggered runs
+        # or re-finalized workspaces update the remote branch before checking/creating PRs.
         push_cmd = [
             "git",
             "-c", "credential.helper=",
@@ -711,6 +706,17 @@ class ComposeProvider:
         if handle.base_overrides:
             dep_lines = "\n".join(f"- `{repo}`: `{ref}`" for repo, ref in handle.base_overrides.items())
             pr_body = f"{body}\n\n### 🔗 Upstream Dependencies\nThis pull request was developed and verified against unmerged branch(es):\n{dep_lines}\n"
+        # Reuse an existing OPEN PR for this branch if one exists (and update its title/body);
+        # if a prior PR was closed or merged, fall through to create a fresh PR.
+        view = self._run(["gh", "pr", "view", branch, "--json", "url,state", "-q", '.state + " " + .url'],
+                         git_root, env, timeout=30)
+        if view and view.returncode == 0 and view.stdout.strip():
+            parts = view.stdout.strip().split(" ", 1)
+            if len(parts) == 2 and parts[0] == "OPEN" and parts[1].startswith("http"):
+                url = parts[1].strip()
+                self._run(["gh", "pr", "edit", url, "--title", title, "--body", pr_body], git_root, env, timeout=30)
+                self._attach_label(git_root, env, url, label)
+                return url
         args = ["gh", "pr", "create", "--base", base, "--head", branch,
                 "--title", title, "--body", pr_body]
         if draft:

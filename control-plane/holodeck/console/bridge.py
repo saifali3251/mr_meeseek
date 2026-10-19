@@ -329,22 +329,20 @@ class JiraBridge:
         return "unknown-command"
 
     def _start(self, key: str) -> str:
-        # One session per Jira id: if we've EVER started this ticket — active OR
-        # already released/failed — don't create another. This avoids the messy
-        # edge cases of a second run for the same ticket (old destroyed + new both
-        # on the board, stitching ambiguity). The operator can still deliberately
-        # re-strike from the console; this only guards the Jira-driven flow.
         existing = self.manager.store.get(key)
         if existing is not None:
             if existing.is_terminal:
-                self._say(key, f"Meeseek: a session already ran for this ticket "
-                               f"({existing.status}); a new one was not started.")
-                return "exists"
-            if existing.halted:
+                # Previous session already finished or was released — clear the stale
+                # record so this ticket can be triggered again any number of times.
+                self.manager.store.delete(key)
+                self._repo_blocked.discard(key)
+                self._repo_blocked.discard(key.upper())
+            elif existing.halted:
                 # Re-triggering on a halted ticket acts as resume/approval
                 return self._answer(key, "approve")
-            self._say(key, "Meeseek: a task is already active for this ticket.")
-            return "conflict"
+            else:
+                self._say(key, "Meeseek: a task is already active for this ticket.")
+                return "conflict"
         try:
             issue = self.jira.get_issue(key)
         except Exception:
@@ -385,7 +383,10 @@ class JiraBridge:
                 f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
                 f"• **Status**: Queued in FIFO workspace line"
             )
-            self._say(key, msg)
+            cid = self._say(key, msg)
+            if cid is not None:
+                rec.jira_watermark = str(cid)
+                self.manager.store.put(rec)
             return "queued"
 
         baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
@@ -402,7 +403,10 @@ class JiraBridge:
             f"• **Guardrails Active**: `AGENT_RULES.md` repository conventions pre-grounded\n"
             f"• **Status**: {mode_hint}"
         )
-        self._say(key, msg, links=links or None)
+        cid = self._say(key, msg, links=links or None)
+        if cid is not None:
+            rec.jira_watermark = str(cid)
+            self.manager.store.put(rec)
         return "started"
 
     # A composite ticket names its target repo with a `Repo: <name>` line
@@ -457,7 +461,28 @@ class JiraBridge:
                           f"— must be one of {sorted(valid)}.")
         return repo, None
 
-    def _clear_halt(self, rec) -> None:
+    def cleanup_ticket_labels(self, key: str) -> None:
+        """Remove all Meeseek trigger/halt/plan/reset labels from Jira so a
+        completed or released ticket is completely clean and can be re-triggered
+        at any time by re-adding the trigger label."""
+        self._repo_blocked.discard(key)
+        self._repo_blocked.discard(key.upper())
+        remove_labels = [
+            l for l in (
+                self.cfg.jira_trigger_label,
+                self.cfg.jira_halt_label,
+                self.cfg.jira_reset_label,
+                getattr(self.cfg, "jira_plan_label", "meeseek:plan-only"),
+            ) if l
+        ]
+        if not remove_labels:
+            return
+        try:
+            self.jira.set_labels(key.upper(), remove=remove_labels)
+        except Exception:
+            log.exception("jira set_labels (cleanup) failed for %s", key)
+
+    def _clear_halt(self, rec, *, readd_trigger: bool = True) -> None:
         """A human acted on the ticket — it's no longer 'waiting on you', so
         drop the halt label immediately (optimistic — `_check_halt` will also
         self-correct on the next poll once `session_state` actually moves off
@@ -469,8 +494,11 @@ class JiraBridge:
         plan_label = getattr(self.cfg, "jira_plan_label", "meeseek:plan-only")
         if plan_label:
             remove_labels.append(plan_label)
+        if not readd_trigger and self.cfg.jira_trigger_label:
+            remove_labels.append(self.cfg.jira_trigger_label)
         try:
-            self.jira.set_labels(rec.ticket, remove=remove_labels, add=[self.cfg.jira_trigger_label])
+            add_labels = [self.cfg.jira_trigger_label] if readd_trigger else None
+            self.jira.set_labels(rec.ticket, remove=remove_labels, add=add_labels)
         except Exception:
             log.exception("jira set_labels (clear halt) failed for %s", rec.ticket)
 
@@ -488,7 +516,7 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: could not apply that reply — {e}")
             return "error"
-        self._clear_halt(rec)
+        self._clear_halt(rec, readd_trigger=True)
         if verdict is True:
             self._say(key, "Meeseek ✅ Approved. Continuing.")
             return "approved"
@@ -525,7 +553,11 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: finalize failed — {e}")
             return "error"
-        self._clear_halt(rec)
+        # Do NOT re-add the trigger label on finalize: once finalized, the ticket
+        # should have neither `meeseek:needs-input` nor `meeseek`, so when the
+        # workspace is later destroyed it won't auto-retrigger until a human
+        # deliberately adds `meeseek` again.
+        self._clear_halt(rec, readd_trigger=False)
         pr = evidence.get("pr_url")
         baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
         body = _finalize_summary(evidence, prefix=self.prefix, baseline_url=baseline_url, preview_url=rec.preview_url)
@@ -563,6 +595,7 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: failed to release — {e}")
             return "error"
+        self.cleanup_ticket_labels(key)
         self._say(key, "Meeseek: the environment has been released.")
         return "released"
 
@@ -583,11 +616,7 @@ class JiraBridge:
             self._say(key, "Meeseek: this ticket's session has been reset — "
                            f"add the `{self.cfg.jira_trigger_label}` label again "
                            "to start a new one.")
-        try:
-            self.jira.set_labels(
-                key, remove=[self.cfg.jira_reset_label, self.cfg.jira_halt_label, self.cfg.jira_trigger_label])
-        except Exception:
-            log.exception("jira set_labels (reset cleanup) failed for %s", key)
+        self.cleanup_ticket_labels(key)
         return "reset"
 
     def _check_halt(self, rec) -> None:
@@ -679,6 +708,10 @@ class JiraBridge:
         recently" — and uses `session_state == "idle"` instead, deliberately
         not text-based."""
         for rec in self.manager.store.all():
+            if rec.is_terminal:
+                self.cleanup_ticket_labels(rec.ticket)
+                self.manager.store.delete(rec.ticket)
+                continue
             if (rec.stable_agent_message
                     and rec.stable_agent_message != rec.posted_agent_message):
                 cid = self._say(rec.ticket, f"💬 **Meeseek Update**\n\n{rec.stable_agent_message}")
@@ -721,9 +754,8 @@ class JiraBridge:
             log.exception("jira label search failed")
             return
         for key in keys:
-            # a task record (active OR past) means we already fired for this ticket;
-            # don't re-trigger a labelled-but-released ticket every minute.
-            if self.manager.store.get(key) is None:
+            existing = self.manager.store.get(key)
+            if existing is None or existing.is_terminal:
                 self._start(key)
 
     def _poll_resets(self) -> None:
