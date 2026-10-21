@@ -137,6 +137,8 @@ class JiraOtpService:
         self.history: list[dict] = []
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._client: Optional[imaplib.IMAP4_SSL] = None
+        self._last_inbox_count: int = -1
         self.last_error: Optional[str] = None
         self.last_status: str = "Uninitialized"
         self.last_check_at: Optional[float] = None
@@ -173,10 +175,25 @@ class JiraOtpService:
             getattr(self.cfg, "jira_evaluator_imap_interval_s", 3),
         )
 
+    def _reset_client(self) -> None:
+        client = self._client
+        self._client = None
+        self._last_inbox_count = -1
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+            try:
+                client.logout()
+            except Exception:
+                pass
+
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
+        self._reset_client()
         self.last_status = "Stopped"
         log.info("Jira evaluator IMAP poller stopped")
 
@@ -238,12 +255,13 @@ class JiraOtpService:
         }
 
     def _poll_loop(self) -> None:
-        interval = max(4, getattr(self.cfg, "jira_evaluator_imap_interval_s", 6))
+        interval = max(1.5, min(3.0, float(getattr(self.cfg, "jira_evaluator_imap_interval_s", 2))))
         while not self._stop_event.is_set():
             try:
                 self._check_inbox()
                 self._stop_event.wait(interval)
             except Exception as e:
+                self._reset_client()
                 self.last_error = str(e)
                 self.last_status = f"IMAP Error: {e}"
                 log.error("Error in IMAP inbox check: %s", e)
@@ -266,123 +284,112 @@ class JiraOtpService:
             self.last_status = "Standby: MEESEEK_JIRA_EVALUATOR_IMAP_PASSWORD not configured"
             return
 
-        client = None
-        try:
-            client = imaplib.IMAP4_SSL(server, 993, timeout=25)
+        if self._client is None:
+            client = imaplib.IMAP4_SSL(server, 993, timeout=15)
             client.login(user, pw)
-            status, select_data = client.select("INBOX", readonly=True)
+            self._client = client
+            self._last_inbox_count = -1
 
-            msg_ids = []
-            # 1. First attempt: Search for emails from Atlassian / Jira specifically
-            try:
-                status, data = client.search(None, '(OR (FROM "atlassian") (FROM "jira"))')
-                if status == "OK" and data and data[0]:
-                    msg_ids = data[0].split()
-            except Exception as search_err:
-                log.debug("Targeted search failed (%s), falling back to recent messages", search_err)
+        client = self._client
+        status, select_data = client.select("INBOX", readonly=True)
+        if status != "OK":
+            self._reset_client()
+            raise RuntimeError(f"IMAP SELECT INBOX returned {status}")
 
-            # 2. Fallback: If targeted search empty or unsupported, take the last 5 messages in inbox
-            if not msg_ids:
-                total = int(select_data[0]) if select_data and select_data[0] and select_data[0].isdigit() else 0
-                if total > 0:
-                    start = max(1, total - 4)
-                    msg_ids = [str(i).encode() for i in range(start, total + 1)]
+        total = int(select_data[0]) if select_data and select_data[0] and select_data[0].isdigit() else 0
+        self.last_check_at = time.time()
+        self.last_error = None
 
-            if not msg_ids:
-                self.last_status = f"Connected to {server}, INBOX empty"
-                self.last_error = None
-                self.last_check_at = time.time()
-                return
+        if total == 0:
+            self._last_inbox_count = 0
+            self.last_status = f"Connected to {server}, INBOX empty"
+            return
 
-            self.last_check_at = time.time()
-            self.last_error = None
+        # Fast-path (~40ms): if inbox message count hasn't changed since last check
+        # and we already scanned up to `total`, skip header/body fetches completely!
+        if total == self._last_inbox_count:
+            return
 
-            # Inspect newest 5 messages, newest first
-            for mid in reversed(msg_ids[-5:]):
-                # Fetch HEADERS ONLY first — ultra fast, avoids downloading big attachments
-                status, header_data = client.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-                if status != "OK" or not header_data:
-                    continue
+        self._last_inbox_count = total
+        start = max(1, total - 4)
+        msg_ids = [str(i).encode() for i in range(start, total + 1)]
 
-                raw_header = header_data[0][1]
-                if not isinstance(raw_header, (bytes, bytearray)):
-                    continue
+        # Inspect newest 5 messages, newest first
+        for mid in reversed(msg_ids):
+            # Fetch HEADERS ONLY first — ultra fast, avoids downloading big attachments
+            status, header_data = client.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+            if status != "OK" or not header_data:
+                continue
 
-                msg = email.message_from_bytes(raw_header)
-                subject = _decode_header(msg.get("Subject", ""))
-                from_hdr = _decode_header(msg.get("From", ""))
-                date_hdr = msg.get("Date", "")
+            raw_header = header_data[0][1]
+            if not isinstance(raw_header, (bytes, bytearray)):
+                continue
 
-                subj_lower = subject.lower()
-                from_lower = from_hdr.lower()
-                # Skip ordinary Jira issue/comment notification emails (e.g. "[JIRA] (FSA-15) ...")
-                if "[jira]" in subj_lower:
-                    continue
+            msg = email.message_from_bytes(raw_header)
+            subject = _decode_header(msg.get("Subject", ""))
+            from_hdr = _decode_header(msg.get("From", ""))
+            date_hdr = msg.get("Date", "")
 
-                is_candidate = (
-                    "id.atlassian" in from_lower
-                    or "amail.atlassian" in from_lower
-                    or "verification" in subj_lower
-                    or "verification" in from_lower
-                    or "verify" in subj_lower
-                    or "security code" in subj_lower
-                    or "code requested" in subj_lower
-                    or "login" in subj_lower
-                    or "log in" in subj_lower
-                    or "sign in" in subj_lower
-                    or ("atlassian" in from_lower and "code" in subj_lower)
+            subj_lower = subject.lower()
+            from_lower = from_hdr.lower()
+            # Skip ordinary Jira issue/comment notification emails (e.g. "[JIRA] (FSA-15) ...")
+            if "[jira]" in subj_lower:
+                continue
+
+            is_candidate = (
+                "id.atlassian" in from_lower
+                or "amail.atlassian" in from_lower
+                or "verification" in subj_lower
+                or "verification" in from_lower
+                or "verify" in subj_lower
+                or "security code" in subj_lower
+                or "code requested" in subj_lower
+                or "login" in subj_lower
+                or "log in" in subj_lower
+                or "sign in" in subj_lower
+                or ("atlassian" in from_lower and "code" in subj_lower)
+            )
+            if not is_candidate:
+                continue
+
+            # Check if OTP code is right in the subject!
+            code = _extract_otp_code(subject, "")
+
+            # If not in subject, fetch full MIME message for this single verification email
+            # and decode quoted-printable / base64 parts cleanly via _extract_body().
+            if not code:
+                status, full_data = client.fetch(mid, "(BODY.PEEK[])")
+                raw_body = ""
+                if status == "OK" and full_data and len(full_data) > 0 and len(full_data[0]) > 1:
+                    part = full_data[0][1]
+                    if isinstance(part, (bytes, bytearray)):
+                        try:
+                            full_msg = email.message_from_bytes(part)
+                            raw_body = _extract_body(full_msg)
+                        except Exception:
+                            raw_body = part.decode("utf-8", errors="replace")
+                code = _extract_otp_code(subject, raw_body)
+
+            if code:
+                with self.lock:
+                    if self.latest_otp and self.latest_otp.get("code") == code:
+                        break
+
+                rec_time = time.time()
+                try:
+                    parsed_date = email.utils.parsedate_to_datetime(date_hdr)
+                    rec_time = parsed_date.timestamp()
+                except Exception:
+                    pass
+
+                self.set_otp(
+                    code=code,
+                    timestamp=rec_time,
+                    subject=subject[:100],
+                    from_addr=from_hdr[:100],
                 )
-                if not is_candidate:
-                    continue
-
-                # Check if OTP code is right in the subject!
-                code = _extract_otp_code(subject, "")
-
-                # If not in subject, fetch full MIME message for this single verification email
-                # and decode quoted-printable / base64 parts cleanly via _extract_body().
-                if not code:
-                    status, full_data = client.fetch(mid, "(BODY.PEEK[])")
-                    raw_body = ""
-                    if status == "OK" and full_data and len(full_data) > 0 and len(full_data[0]) > 1:
-                        part = full_data[0][1]
-                        if isinstance(part, (bytes, bytearray)):
-                            try:
-                                full_msg = email.message_from_bytes(part)
-                                raw_body = _extract_body(full_msg)
-                            except Exception:
-                                raw_body = part.decode("utf-8", errors="replace")
-                    code = _extract_otp_code(subject, raw_body)
-
-                if code:
-                    with self.lock:
-                        if self.latest_otp and self.latest_otp.get("code") == code:
-                            break
-
-                    rec_time = time.time()
-                    try:
-                        parsed_date = email.utils.parsedate_to_datetime(date_hdr)
-                        rec_time = parsed_date.timestamp()
-                    except Exception:
-                        pass
-
-                    self.set_otp(
-                        code=code,
-                        timestamp=rec_time,
-                        subject=subject[:100],
-                        from_addr=from_hdr[:100],
-                    )
-                    log.info("IMAP: Extracted Jira verification code [%s] from email: %s", code, subject)
-                    break
-            else:
-                if not self.latest_otp:
-                    self.last_status = f"Connected to {server} ({user}) - Waiting for login code"
-        finally:
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:
-                    pass
-                try:
-                    client.logout()
-                except Exception:
-                    pass
+                log.info("IMAP: Extracted Jira verification code [%s] from email: %s", code, subject)
+                break
+        else:
+            if not self.latest_otp:
+                self.last_status = f"Connected to {server} ({user}) - Waiting for login code"

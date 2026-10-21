@@ -48,7 +48,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
   const [otpLoading, setOtpLoading] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Poll for Atlassian Verification OTP every 3 seconds
+  // Poll for Atlassian Verification OTP every 1.5 seconds
   const loadOtp = useCallback(async () => {
     try {
       const data = await fetchJiraOtp();
@@ -60,7 +60,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
 
   useEffect(() => {
     loadOtp();
-    const interval = setInterval(loadOtp, 3000);
+    const interval = setInterval(loadOtp, 1500);
     return () => clearInterval(interval);
   }, [loadOtp]);
 
