@@ -57,14 +57,17 @@ def parse_app_aliases(raw: str) -> dict[str, str]:
 
 
 def default_env_file() -> Path:
-    """control-plane/holodeck.env or root holodeck.env — the operator's local config (gitignored)."""
-    p1 = Path(__file__).resolve().parents[1] / "holodeck.env"
-    if p1.is_file():
-        return p1
-    p2 = Path(__file__).resolve().parents[2] / "holodeck.env"
-    if p2.is_file():
-        return p2
-    return p1
+    """control-plane/holodeck.env, root holodeck.env, or .env — the operator's local config (gitignored)."""
+    candidates = [
+        Path(__file__).resolve().parents[1] / "holodeck.env",
+        Path(__file__).resolve().parents[2] / "holodeck.env",
+        Path(__file__).resolve().parents[1] / ".env",
+        Path(__file__).resolve().parents[2] / ".env",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return candidates[0]
 
 
 

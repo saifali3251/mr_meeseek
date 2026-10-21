@@ -66,14 +66,25 @@ def _extract_body(msg) -> str:
     return "\n".join(texts)
 
 
+def _clean_html(raw: str) -> str:
+    """Strip <style>/<script>/<head> blocks and HTML tags so CSS hex colors
+    (like #0052CC or #172B4D) and HTML attributes never masquerade as 6-char OTPs."""
+    text = re.sub(r"<(style|script|head)\b[^>]*>.*?</\1>", " ", raw, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"#[0-9A-Fa-f]{6}\b", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _extract_otp_code(subject: str, body: str) -> Optional[str]:
     """Extract 6-character alphanumeric Atlassian verification code from email subject or body."""
     # 1. Subject match with digit: "Your verification code: PKRKB5" or "123456"
-    m_subj = re.search(r"\b([A-Z0-9]{6})\b", subject)
+    # Exclude Jira ticket keys like FSA-15 or CPL-100
+    subj_clean = re.sub(r"\b[A-Z]+-\d+\b", " ", subject)
+    m_subj = re.search(r"\b([A-Z0-9]{6})\b", subj_clean)
     if m_subj and any(c.isdigit() for c in m_subj.group(1)):
         return m_subj.group(1).upper()
 
-    combined = f"{subject} {body}"
+    combined = f"{subj_clean} {_clean_html(body)}"
 
     # 2. Targeted contextual patterns (Atlassian's standard email phrases)
     context_patterns = [
@@ -101,11 +112,12 @@ def _extract_otp_code(subject: str, body: str) -> Optional[str]:
     if m_digits:
         return m_digits.group(1)
 
-    # 5. Standalone 6-character alphanumeric tokens (must contain a digit to avoid ordinary English words)
+    # 5. Standalone 6-character alphanumeric tokens (must contain a digit; exclude CSS/HTML hex tokens)
     stop_words = {
         "ACCESS", "ACTION", "ATLASSIAN", "VERIFY", "SECURITY", "SYSTEM",
         "BROWSER", "DEVICE", "ENABLE", "UPDATE", "PLEASE", "CHROME",
-        "SAFARI", "STATUS", "COOKIE", "DOMAIN", "NEARLY"
+        "SAFARI", "STATUS", "COOKIE", "DOMAIN", "NEARLY", "0052CC",
+        "172B4D", "DEEBFF", "42526E", "F4F5F7", "FFFFFF", "000000"
     }
     tokens = re.findall(r"\b([A-Z0-9]{6})\b", combined)
     for tok in tokens:
@@ -226,26 +238,28 @@ class JiraOtpService:
         }
 
     def _poll_loop(self) -> None:
-        interval = max(2, getattr(self.cfg, "jira_evaluator_imap_interval_s", 3))
+        interval = max(4, getattr(self.cfg, "jira_evaluator_imap_interval_s", 6))
         while not self._stop_event.is_set():
             try:
                 self._check_inbox()
+                self._stop_event.wait(interval)
             except Exception as e:
                 self.last_error = str(e)
                 self.last_status = f"IMAP Error: {e}"
                 log.error("Error in IMAP inbox check: %s", e)
-            self._stop_event.wait(interval)
+                # Wait 10 seconds before retry on error to avoid hammering/rate-limiting
+                self._stop_event.wait(10)
 
     def _check_inbox(self) -> None:
         user = (
             getattr(self.cfg, "jira_evaluator_imap_user", "")
             or getattr(self.cfg, "jira_evaluator_email", "")
             or ""
-        ).strip()
+        ).strip().strip("'\"")
         pw = (
             getattr(self.cfg, "jira_evaluator_imap_password", "")
             or ""
-        ).strip().replace(" ", "")
+        ).strip().strip("'\"").replace(" ", "")
         server = getattr(self.cfg, "jira_evaluator_imap_server", "imap.gmail.com")
 
         if not user or not pw:
@@ -254,57 +268,91 @@ class JiraOtpService:
 
         client = None
         try:
-            client = imaplib.IMAP4_SSL(server, 993, timeout=10)
+            client = imaplib.IMAP4_SSL(server, 993, timeout=25)
             client.login(user, pw)
-            client.select("INBOX", readonly=True)
+            status, select_data = client.select("INBOX", readonly=True)
 
-            status, data = client.search(None, "ALL")
-            if status != "OK" or not data or not data[0]:
+            msg_ids = []
+            # 1. First attempt: Search for emails from Atlassian / Jira specifically
+            try:
+                status, data = client.search(None, '(OR (FROM "atlassian") (FROM "jira"))')
+                if status == "OK" and data and data[0]:
+                    msg_ids = data[0].split()
+            except Exception as search_err:
+                log.debug("Targeted search failed (%s), falling back to recent messages", search_err)
+
+            # 2. Fallback: If targeted search empty or unsupported, take the last 5 messages in inbox
+            if not msg_ids:
+                total = int(select_data[0]) if select_data and select_data[0] and select_data[0].isdigit() else 0
+                if total > 0:
+                    start = max(1, total - 4)
+                    msg_ids = [str(i).encode() for i in range(start, total + 1)]
+
+            if not msg_ids:
                 self.last_status = f"Connected to {server}, INBOX empty"
                 self.last_error = None
                 self.last_check_at = time.time()
                 return
 
-            msg_ids = data[0].split()
             self.last_check_at = time.time()
             self.last_error = None
 
-            # Inspect last 20 messages, newest first
-            for mid in reversed(msg_ids[-20:]):
-                status, msg_data = client.fetch(mid, "(RFC822)")
-                if status != "OK" or not msg_data:
+            # Inspect newest 5 messages, newest first
+            for mid in reversed(msg_ids[-5:]):
+                # Fetch HEADERS ONLY first — ultra fast, avoids downloading big attachments
+                status, header_data = client.fetch(mid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+                if status != "OK" or not header_data:
                     continue
 
-                raw = msg_data[0][1]
-                if not isinstance(raw, (bytes, bytearray)):
+                raw_header = header_data[0][1]
+                if not isinstance(raw_header, (bytes, bytearray)):
                     continue
 
-                msg = email.message_from_bytes(raw)
+                msg = email.message_from_bytes(raw_header)
                 subject = _decode_header(msg.get("Subject", ""))
                 from_hdr = _decode_header(msg.get("From", ""))
                 date_hdr = msg.get("Date", "")
 
+                subj_lower = subject.lower()
+                from_lower = from_hdr.lower()
+                # Skip ordinary Jira issue/comment notification emails (e.g. "[JIRA] (FSA-15) ...")
+                if "[jira]" in subj_lower:
+                    continue
+
                 is_candidate = (
-                    "atlassian" in from_hdr.lower()
-                    or "atlassian" in subject.lower()
-                    or "jira" in from_hdr.lower()
-                    or "jira" in subject.lower()
-                    or "verification" in subject.lower()
-                    or "verification" in from_hdr.lower()
-                    or "verify" in subject.lower()
-                    or "verifying" in subject.lower()
-                    or "security code" in subject.lower()
-                    or "code requested" in subject.lower()
-                    or "code" in subject.lower()
+                    "id.atlassian" in from_lower
+                    or "amail.atlassian" in from_lower
+                    or "verification" in subj_lower
+                    or "verification" in from_lower
+                    or "verify" in subj_lower
+                    or "security code" in subj_lower
+                    or "code requested" in subj_lower
+                    or "login" in subj_lower
+                    or "log in" in subj_lower
+                    or "sign in" in subj_lower
+                    or ("atlassian" in from_lower and "code" in subj_lower)
                 )
                 if not is_candidate:
                     continue
 
-                raw_body = _extract_body(msg)
-                clean_body = re.sub(r"<[^>]+>", " ", raw_body)
-                clean_body = re.sub(r"\s+", " ", clean_body)
+                # Check if OTP code is right in the subject!
+                code = _extract_otp_code(subject, "")
 
-                code = _extract_otp_code(subject, clean_body)
+                # If not in subject, fetch full MIME message for this single verification email
+                # and decode quoted-printable / base64 parts cleanly via _extract_body().
+                if not code:
+                    status, full_data = client.fetch(mid, "(BODY.PEEK[])")
+                    raw_body = ""
+                    if status == "OK" and full_data and len(full_data) > 0 and len(full_data[0]) > 1:
+                        part = full_data[0][1]
+                        if isinstance(part, (bytes, bytearray)):
+                            try:
+                                full_msg = email.message_from_bytes(part)
+                                raw_body = _extract_body(full_msg)
+                            except Exception:
+                                raw_body = part.decode("utf-8", errors="replace")
+                    code = _extract_otp_code(subject, raw_body)
+
                 if code:
                     with self.lock:
                         if self.latest_otp and self.latest_otp.get("code") == code:
