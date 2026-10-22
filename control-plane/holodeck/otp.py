@@ -21,6 +21,9 @@ from typing import Optional
 
 log = logging.getLogger("holodeck.otp")
 
+# Expire OTP after 5 minutes (300s) so the UI resets to "Waiting for login..."
+OTP_TTL_SECONDS = 300
+
 
 def _decode_header(val: str) -> str:
     if not val:
@@ -225,12 +228,16 @@ class JiraOtpService:
         return item
 
     def get_state(self) -> dict:
+        now = time.time()
         with self.lock:
+            if self.latest_otp and (now - self.latest_otp["received_at"]) > OTP_TTL_SECONDS:
+                self.latest_otp = None
+                self.last_status = "Active. Waiting for new login OTP..."
             latest = dict(self.latest_otp) if self.latest_otp else None
             hist = [dict(h) for h in self.history]
 
         if latest:
-            latest["age_seconds"] = max(0, int(time.time() - latest["received_at"]))
+            latest["age_seconds"] = max(0, int(now - latest["received_at"]))
 
         user = (
             getattr(self.cfg, "jira_evaluator_imap_user", "")
@@ -352,6 +359,17 @@ class JiraOtpService:
             if not is_candidate:
                 continue
 
+            rec_time = time.time()
+            try:
+                parsed_date = email.utils.parsedate_to_datetime(date_hdr)
+                rec_time = parsed_date.timestamp()
+            except Exception:
+                pass
+
+            # Ignore old verification emails (> 5 minutes old)
+            if (time.time() - rec_time) > OTP_TTL_SECONDS:
+                continue
+
             # Check if OTP code is right in the subject!
             code = _extract_otp_code(subject, "")
 
@@ -374,13 +392,6 @@ class JiraOtpService:
                 with self.lock:
                     if self.latest_otp and self.latest_otp.get("code") == code:
                         break
-
-                rec_time = time.time()
-                try:
-                    parsed_date = email.utils.parsedate_to_datetime(date_hdr)
-                    rec_time = parsed_date.timestamp()
-                except Exception:
-                    pass
 
                 self.set_otp(
                     code=code,

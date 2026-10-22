@@ -477,7 +477,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
-              Method 2 · 1-Click Console Evaluation (Zero Login Needed)
+              Method 2 · 1-Click Console Evaluation
             </span>
             <span className="text-xs text-slate-400 font-mono flex items-center space-x-1">
               <Clock className="w-3.5 h-3.5 text-slate-500" />
