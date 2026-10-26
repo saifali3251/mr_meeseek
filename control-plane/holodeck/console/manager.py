@@ -350,6 +350,31 @@ class ConsoleManager:
             rec.workflow_state = "GUARDRAIL_BLOCKED"
         elif evidence.get("test_cmd") and (evidence.get("test_exit") != 0 or evidence.get("test_timed_out")):
             rec.workflow_state = "NOTARY_FAILED"
+            # Bounded Self-Correction Loop (Max 2 automatic retries)
+            if rec.notary_retries < 2 and rec.session_id:
+                rec.notary_retries += 1
+                test_cmd = evidence.get("test_cmd") or "test suite"
+                tb = (evidence.get("test_output") or "Command exited with non-zero status.")[-2000:]
+                feedback = (
+                    f"⚠️ **Host Notary Verification Failed (Attempt {rec.notary_retries}/2)**\n\n"
+                    f"Command executed: `{test_cmd}`\n"
+                    f"Exit code: `{evidence.get('test_exit')}`\n\n"
+                    f"Failure Traceback:\n```\n{tb}\n```\n\n"
+                    f"Please fix the compilation/test error above immediately, verify your fix by running `{test_cmd}` in the container, and then report `Your action:` when ready."
+                )
+                try:
+                    self.driver.reiterate(rec.session_id, feedback)
+                    rec.waiting = False
+                    rec.notified_waiting = False
+                    rec.elicitation_id = None
+                    rec.question = None
+                    rec.halted = False
+                    rec.workflow_state = "CODING"
+                    rec.last_action = "auto-self-correct"
+                    evidence["auto_retrying"] = True
+                    evidence["retry_attempt"] = rec.notary_retries
+                except Exception as retry_err:
+                    log.warning("Auto self-correction reiterate failed for %s: %s", ticket, retry_err)
         else:
             rec.workflow_state = "NOTARY_TESTING"
         rec.last_action = "finalized"

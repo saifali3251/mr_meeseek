@@ -522,6 +522,20 @@ export async function finalizeTask(ticket: string): Promise<any> {
   return res.json();
 }
 
+export async function reiterateTask(ticket: string, feedback: string): Promise<any> {
+  const authHeaders = getAuthHeaders();
+  const res = await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}/reiterate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders },
+    body: JSON.stringify({ feedback }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Failed to send feedback to ${ticket}: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function fetchTaskComments(ticket: string): Promise<any[]> {
   try {
     const res = await fetch(`${BASE_URL}/console/tasks/${encodeURIComponent(ticket)}/comments`, {

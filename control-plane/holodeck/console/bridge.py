@@ -184,6 +184,16 @@ def _finalize_summary(ev: dict, prefix: str = "#meeseek", baseline_url: Optional
         )
         if ev.get("test_output"):
             summary += f"\n\n**Failure Traceback**:\n```text\n{ev['test_output'][-1500:]}\n```"
+        if ev.get("auto_retrying"):
+            attempt = ev.get("retry_attempt", 1)
+            summary += (
+                f"\n\n🔁 **Bounded Self-Correction Loop Triggered (Attempt {attempt}/2)**: "
+                f"Meeseek Notary has automatically fed this failure traceback back to the agent inside the sandbox to self-correct."
+            )
+        else:
+            summary += (
+                f"\n\n🛠️ **To Recover**: Reply `{prefix} retry Please fix the error above` or click **Send Traceback to Agent** in the Console UI."
+            )
     else:
         summary = (
             f"🎯 **Task Completed! Meeseek Certified Delivery**\n"
