@@ -29,6 +29,7 @@ interface WorkspacesTableProps {
   selectedApp?: string;
   onResetFilter?: () => void;
   loading?: boolean;
+  onRefresh?: () => void;
 }
 
 function formatTTL(expiresAt?: number, now: number = Date.now() / 1000): { text: string; color: "green" | "amber" | "red" } {
@@ -56,6 +57,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
   selectedApp,
   onResetFilter,
   loading = false,
+  onRefresh,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedLeaseId, setExpandedLeaseId] = useState<string | null>(() => {
@@ -412,6 +414,7 @@ export const WorkspacesTable: React.FC<WorkspacesTableProps> = ({
                           lease={lease}
                           task={task}
                           jiraBaseUrl={jiraBaseUrl}
+                          onRefresh={onRefresh}
                         />
                       </td>
                     </tr>

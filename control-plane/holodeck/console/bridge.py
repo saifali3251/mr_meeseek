@@ -336,6 +336,10 @@ class JiraBridge:
                  f"Try `{self.prefix} run | retry <text> | finalize | extend | stop`.")
         return "unknown-command"
 
+    def strike(self, key: str) -> str:
+        """Trigger an explicit strike from the console for a Jira ticket."""
+        return self._start(key.upper())
+
     def _start(self, key: str) -> str:
         existing = self.manager.store.get(key)
         if existing is not None:

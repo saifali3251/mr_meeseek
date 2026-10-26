@@ -17,7 +17,7 @@ import {
   Globe,
   AlertCircle
 } from "lucide-react";
-import { strikeEnvironment, verifyJiraTicket, fetchJiraOtp, JiraVerifyResult } from "../api";
+import { triggerTask, verifyJiraTicket, fetchJiraOtp, JiraVerifyResult } from "../api";
 import { JiraOtpState } from "../types";
 import judgeMeeseek from "../assets/judge-meeseek.webp";
 
@@ -161,10 +161,10 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
     setIsTriggering(true);
     setStatusMessage(null);
     try {
-      const res = await strikeEnvironment(cleanTicket, "full-stack-application", 3600);
+      const res = await triggerTask(cleanTicket);
       setLastTriggeredTicket(cleanTicket);
 
-      if (res?.status === "queued") {
+      if (res?.task?.status === "queued" || res?.status === "queued") {
         setStatusMessage({
           type: "queued",
           text: `⏳ Max capacity reached! Workspace for ${cleanTicket} is QUEUED and will boot automatically when an active workspace is released.`,

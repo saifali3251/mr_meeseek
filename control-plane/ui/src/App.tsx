@@ -542,6 +542,7 @@ export const App: React.FC = () => {
               selectedApp={selectedApp}
               onResetFilter={() => setSelectedApp("all")}
               loading={isLoading}
+              onRefresh={loadState}
             />
           </div>
         )}

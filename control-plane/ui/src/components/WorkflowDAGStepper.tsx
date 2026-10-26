@@ -21,6 +21,7 @@ interface WorkflowDAGStepperProps {
   task?: TaskRecord;
   lease?: Lease;
   jiraBaseUrl?: string;
+  onRefresh?: () => void;
 }
 
 interface StageDefinition {
@@ -98,7 +99,6 @@ function getStageIndex(state?: WorkflowState, lease?: Lease, task?: TaskRecord):
   if (state === "PENDING" || state === "PROVISIONING" || state === "QUEUED" || lease?.status === "queued") return 0; // Step 1: Workspace Strike
   
   if (lease?.status === "ready") {
-    if (lease.evidence?.test_exit === 0) return 5;
     if (lease.evidence?.test_cmd || lease.evidence?.test_exit !== undefined) return 4;
     return 2; // Agent Implementation in progress
   }
@@ -170,16 +170,34 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
   task,
   lease,
   jiraBaseUrl,
+  onRefresh,
 }) => {
   // When the PR is delivered every step is done (nothing left "in progress").
-  const prDelivered = !!(lease?.pr_url || task?.evidence?.pr_url);
+  const prDelivered = !!(lease?.pr_url || lease?.evidence?.pr_url || task?.pr_url || task?.evidence?.pr_url);
   const currentIdx = prDelivered ? STAGES.length : getStageIndex(task?.workflow_state, lease, task);
   const [selectedStageIdx, setSelectedStageIdx] = useState<number | null>(null);
   const [copiedFinalize, setCopiedFinalize] = useState<boolean>(false);
+  const [isFinalizing, setIsFinalizing] = useState<boolean>(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [retryingFix, setRetryingFix] = useState<boolean>(false);
   const [retryFixSent, setRetryFixSent] = useState<boolean>(false);
   const [retryFixError, setRetryFixError] = useState<string | null>(null);
   const [rerunningNotary, setRerunningNotary] = useState<boolean>(false);
+
+  const handleFinalizeNow = async () => {
+    setIsFinalizing(true);
+    setFinalizeError(null);
+    try {
+      const ticket = lease?.ticket || task?.ticket || "";
+      const leaseId = lease?.lease_id || task?.lease_id || "";
+      await finalizeTask(ticket, leaseId);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setFinalizeError(err.message || "Failed to finalize task");
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
 
   const activeInspectIdx = selectedStageIdx !== null ? selectedStageIdx : Math.min(currentIdx, STAGES.length - 1);
   const activeInspectStage = STAGES[activeInspectIdx];
@@ -442,6 +460,27 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {/* Option 1: Direct 1-Click in Console */}
+                  <button
+                    onClick={handleFinalizeNow}
+                    disabled={isFinalizing}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50"
+                    title="Run Host Notary verification and open PR directly without needing Jira login"
+                  >
+                    {isFinalizing ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Verifying & Opening PR...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Approve & Finalize PR</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Option 2: Comment on Jira */}
                   {jiraCommentUrl && (
                     <a
                       href={jiraCommentUrl}
@@ -470,6 +509,12 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                     )}
                   </button>
                 </div>
+
+                {finalizeError && (
+                  <div className="mb-2 p-2 rounded bg-red-950/60 border border-red-500/30 text-xs text-red-300 font-mono">
+                    Finalize error: {finalizeError}
+                  </div>
+                )}
 
                 <div className="text-[11px] text-slate-400 border-t border-slate-800/80 pt-2 font-mono">
                   <span className="text-slate-300 font-medium">To request revisions instead: </span>

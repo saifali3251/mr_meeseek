@@ -85,9 +85,18 @@ def build_router(manager: ConsoleManager) -> APIRouter:
     def finalize(ticket: str, request: Request):
         """The notary, human-triggered: re-derives evidence host-side (never
         trusting the agent's own report) and opens the PR itself if enabled."""
+        ticket = ticket.strip().upper()
+        bridge = getattr(request.app.state, "jira_bridge", None)
+        if bridge and hasattr(bridge, "_finalize"):
+            status = bridge._finalize(ticket)
+            if status == "error":
+                raise HTTPException(status_code=500, detail=f"Failed to finalize task {ticket}")
+            rec = manager.store.get(ticket)
+            if rec:
+                return rec.as_dict()
+            return {"status": status, "ticket": ticket}
         try:
             rec, evidence = manager.finalize(ticket)
-            bridge = getattr(request.app.state, "jira_bridge", None)
             if bridge and hasattr(bridge, "_clear_halt"):
                 try:
                     bridge._clear_halt(rec, readd_trigger=False)
@@ -98,7 +107,9 @@ def build_router(manager: ConsoleManager) -> APIRouter:
                     from holodeck.console.bridge import _finalize_summary
                     baseline_url = manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
                     body = _finalize_summary(evidence, prefix=bridge.prefix, baseline_url=baseline_url, preview_url=rec.preview_url)
-                    bridge._say(ticket, body)
+                    pr = evidence.get("pr_url")
+                    links = [("PR", pr)] if pr else None
+                    bridge._say(ticket, body, links=links)
                 except Exception as e:
                     log.warning("Failed to post finalize summary to Jira for %s: %s", ticket, e)
         except ConsoleError as e:
