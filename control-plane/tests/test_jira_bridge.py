@@ -93,19 +93,20 @@ def test_plain_comment_is_feedback_when_active():
     assert omni._sessions["s-0001"]["messages"][-1] == "also handle X"
 
 
-def test_start_does_not_recreate_a_session_for_the_same_ticket():
-    # one session per Jira id: after a ticket is released, a fresh /holodeck run
-    # (or label re-add) must NOT spin up a second session for it.
+def test_released_ticket_can_be_retriggered_multiple_times():
+    # After a ticket is released/destroyed, re-triggering via command or label
+    # must spin up a fresh session any number of times.
     bridge, mgr, jira, _ = _bridge()
     bridge.handle(JiraEvent("comment", "CPL-1", "u1", body="/holodeck run"))
+    first_sid = mgr.store.get("CPL-1").session_id
     assert mgr.store.get("CPL-1").status == "ready"
     bridge.handle(JiraEvent("comment", "CPL-1", "u1", body="/holodeck stop"))
     assert mgr.store.get("CPL-1").status == "released"
 
     r = bridge.handle(JiraEvent("comment", "CPL-1", "u1", body="/holodeck run"))
-    assert r == "exists"
-    assert mgr.store.get("CPL-1").status == "released"       # unchanged — no new session
-    assert any("was not started" in b for _, b in jira.comments)
+    assert r == "started"
+    assert mgr.store.get("CPL-1").status == "ready"
+    assert mgr.store.get("CPL-1").session_id != first_sid
 
 
 def test_plain_comment_ignored_when_no_active_task():

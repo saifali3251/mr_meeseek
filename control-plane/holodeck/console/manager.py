@@ -143,6 +143,14 @@ class ConsoleManager:
                 continue
             try:
                 lease = self.client.get(rec.lease_id)
+                if (lease and isinstance(lease, dict)
+                        and lease.get("status") in ("released", "failed")
+                        and rec.status == "provisioning"
+                        and (lease.get("created_at") or 0) > 0
+                        and float(lease["created_at"]) < rec.created_at - 1.0):
+                    # Stale terminal lease from a prior run of this ticket; Omnigent's
+                    # async acquire() for the new session hasn't overwritten it yet.
+                    lease = None
                 if lease is None:
                     # HttpLeaseClient.get() returns None for ANY non-200 response, so
                     # this fires identically for "the lease is genuinely gone" and for
@@ -150,12 +158,13 @@ class ConsoleManager:
                     # as released (that's a terminal status; refresh() skips terminal
                     # tasks forever after, silently killing the relay for a still-live
                     # session). Require a few consecutive misses before believing it.
-                    rec.missing_lease_polls += 1
-                    if rec.missing_lease_polls >= 3:
-                        log.warning("lease %s missing for %d consecutive polls (task %s) — "
-                                    "treating as released", rec.lease_id,
-                                    rec.missing_lease_polls, rec.ticket)
-                        rec.status = "released"
+                    if rec.status != "provisioning":
+                        rec.missing_lease_polls += 1
+                        if rec.missing_lease_polls >= 3:
+                            log.warning("lease %s missing for %d consecutive polls (task %s) — "
+                                        "treating as released", rec.lease_id,
+                                        rec.missing_lease_polls, rec.ticket)
+                            rec.status = "released"
                 else:
                     rec.missing_lease_polls = 0
                     rec.status = _PIPELINE.get(lease.get("status", ""), rec.status)
@@ -226,6 +235,10 @@ class ConsoleManager:
                     rec.notified_waiting = False
                     rec.elicitation_id = None
                     rec.question = None
+                current = self.store.get(rec.ticket)
+                if current is None or current.session_id != rec.session_id or (current.is_terminal and not rec.is_terminal):
+                    # Task was deleted, released, or re-triggered while refresh() was in flight
+                    continue
                 self.store.put(rec)
                 changed = True
             except Exception:

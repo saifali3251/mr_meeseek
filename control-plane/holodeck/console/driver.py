@@ -89,6 +89,10 @@ class OmnigentDriver:
         # Omnigent's provider strikes the env under holo_id(ticket); read it back.
         lease_id = holo_id(ticket)
         lease = self.lease.get(lease_id)
+        if lease and lease.get("status") in ("released", "failed"):
+            # Stale terminal lease from a prior run of this ticket; Omnigent's
+            # async acquire() for the new session hasn't overwritten it yet.
+            lease = None
         port = _port(lease)
         status = lease.get("status", "provisioning") if lease else "provisioning"
         # The session link is knowable immediately (no status() round-trip needed) —

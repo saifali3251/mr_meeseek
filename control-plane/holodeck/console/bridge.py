@@ -69,8 +69,7 @@ def _as_int(v) -> int:
 _BEHAVIOR_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
-Before planning or modifying any code, first inspect `AGENT_RULES.md` in the repository root. \
-You must strictly adhere to the architecture conventions, typing rules, and pre-completion verification commands defined there.
+All `AGENT_RULES.md` repository architecture conventions, strict typing rules (zero `any` in TypeScript, full type annotations and Pydantic schemas in Python), and verification rules are already pre-grounded below — do NOT call `view_file` on `AGENT_RULES.md` or `CLAUDE.md`.
 
 Proceed directly to inspecting the codebase with your file tools and implementing the required changes — no need to stop and wait for approval first. \
 (If the ticket description explicitly mandates a plan-only / design-only review without implementing code, honor that boundary and stop after providing the plan.)
@@ -104,13 +103,13 @@ CRITICAL OPERATIONAL RULES:
    b. Implement code modifications.
    c. Run the verification/build command synchronously (`npm run build` or targeted test). Fix any compile or test errors until Exit 0.
    d. Do NOT run dependency install commands (e.g. do NOT run `npm install`, `pip install`). All required packages and node_modules are already pre-installed.
-   e. Do NOT run extraneous linting tools or formatters (e.g. do NOT run `eslint`, `npm run lint`, or `prettier`). Only verify via `npm run build` or targeted test suite.
+   e. Do NOT run `eslint`, `npm run lint`, or `prettier` (even if the ticket's acceptance criteria mentions `npm run lint`, because `package.json` does not have a `lint` script). For frontend tickets, verify exclusively via `npx --yes tsc -b && npm run build`.
    f. Do NOT create or modify repository configuration files (such as `eslint.config.js`, `tsconfig.json`, `vite.config.ts`) unless explicitly required by the ticket description.
    g. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
    h. ONLY AFTER steps a-g have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
 2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
 3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
-4. File Tools: For modifying existing files, prefer `replace_file_content`. When calling `write_to_file`, always supply the required argument `Overwrite: true` (or `false`).
+4. File Tools & Absolute Paths ONLY: Every file tool (`view_file`, `replace_file_content`, `write_to_file`) strictly requires a full ABSOLUTE path starting with `/` (never a relative path like `src/App.tsx` or `AGENT_RULES.md`). If you do not know the absolute working directory path yet, run `pwd` via `run_command` first, then prepend that absolute path to every file path. When calling `write_to_file`, always supply `Overwrite: true` (or `false`).
 
 --- Ticket {key} ---
 """
@@ -119,8 +118,7 @@ CRITICAL OPERATIONAL RULES:
 _PLAN_ONLY_PREAMBLE = """\
 You are working on Jira ticket {key}.
 
-Before planning, first inspect `AGENT_RULES.md` in the repository root. \
-You must strictly adhere to the architecture conventions, typing rules, and verification patterns defined there.
+All `AGENT_RULES.md` repository architecture conventions and typing rules are already pre-grounded — do NOT call `view_file` on `AGENT_RULES.md` or `CLAUDE.md`. Always use full ABSOLUTE paths starting with `/` when calling `view_file` (run `pwd` via `run_command` first if you need the absolute working directory path).
 
 IMPORTANT PLAN-ONLY MANDATE:
 Do NOT modify any code, create any files, run git commits, or implement changes yet.
@@ -329,22 +327,20 @@ class JiraBridge:
         return "unknown-command"
 
     def _start(self, key: str) -> str:
-        # One session per Jira id: if we've EVER started this ticket — active OR
-        # already released/failed — don't create another. This avoids the messy
-        # edge cases of a second run for the same ticket (old destroyed + new both
-        # on the board, stitching ambiguity). The operator can still deliberately
-        # re-strike from the console; this only guards the Jira-driven flow.
         existing = self.manager.store.get(key)
         if existing is not None:
             if existing.is_terminal:
-                self._say(key, f"Meeseek: a session already ran for this ticket "
-                               f"({existing.status}); a new one was not started.")
-                return "exists"
-            if existing.halted:
+                # Previous session already finished or was released — clear the stale
+                # record so this ticket can be triggered again any number of times.
+                self.manager.store.delete(key)
+                self._repo_blocked.discard(key)
+                self._repo_blocked.discard(key.upper())
+            elif existing.halted:
                 # Re-triggering on a halted ticket acts as resume/approval
                 return self._answer(key, "approve")
-            self._say(key, "Meeseek: a task is already active for this ticket.")
-            return "conflict"
+            else:
+                self._say(key, "Meeseek: a task is already active for this ticket.")
+                return "conflict"
         try:
             issue = self.jira.get_issue(key)
         except Exception:
@@ -385,7 +381,10 @@ class JiraBridge:
                 f"• **Workspace**: `{rec.lease_id}` (Target Repo: `{target_repo or 'default'}`)\n"
                 f"• **Status**: Queued in FIFO workspace line"
             )
-            self._say(key, msg)
+            cid = self._say(key, msg)
+            if cid is not None:
+                rec.jira_watermark = str(cid)
+                self.manager.store.put(rec)
             return "queued"
 
         baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
@@ -402,7 +401,10 @@ class JiraBridge:
             f"• **Guardrails Active**: `AGENT_RULES.md` repository conventions pre-grounded\n"
             f"• **Status**: {mode_hint}"
         )
-        self._say(key, msg, links=links or None)
+        cid = self._say(key, msg, links=links or None)
+        if cid is not None:
+            rec.jira_watermark = str(cid)
+            self.manager.store.put(rec)
         return "started"
 
     # A composite ticket names its target repo with a `Repo: <name>` line
@@ -457,7 +459,28 @@ class JiraBridge:
                           f"— must be one of {sorted(valid)}.")
         return repo, None
 
-    def _clear_halt(self, rec) -> None:
+    def cleanup_ticket_labels(self, key: str) -> None:
+        """Remove all Meeseek trigger/halt/plan/reset labels from Jira so a
+        completed or released ticket is completely clean and can be re-triggered
+        at any time by re-adding the trigger label."""
+        self._repo_blocked.discard(key)
+        self._repo_blocked.discard(key.upper())
+        remove_labels = [
+            l for l in (
+                self.cfg.jira_trigger_label,
+                self.cfg.jira_halt_label,
+                self.cfg.jira_reset_label,
+                getattr(self.cfg, "jira_plan_label", "meeseek:plan-only"),
+            ) if l
+        ]
+        if not remove_labels:
+            return
+        try:
+            self.jira.set_labels(key.upper(), remove=remove_labels)
+        except Exception:
+            log.exception("jira set_labels (cleanup) failed for %s", key)
+
+    def _clear_halt(self, rec, *, readd_trigger: bool = True) -> None:
         """A human acted on the ticket — it's no longer 'waiting on you', so
         drop the halt label immediately (optimistic — `_check_halt` will also
         self-correct on the next poll once `session_state` actually moves off
@@ -469,8 +492,11 @@ class JiraBridge:
         plan_label = getattr(self.cfg, "jira_plan_label", "meeseek:plan-only")
         if plan_label:
             remove_labels.append(plan_label)
+        if not readd_trigger and self.cfg.jira_trigger_label:
+            remove_labels.append(self.cfg.jira_trigger_label)
         try:
-            self.jira.set_labels(rec.ticket, remove=remove_labels, add=[self.cfg.jira_trigger_label])
+            add_labels = [self.cfg.jira_trigger_label] if readd_trigger else None
+            self.jira.set_labels(rec.ticket, remove=remove_labels, add=add_labels)
         except Exception:
             log.exception("jira set_labels (clear halt) failed for %s", rec.ticket)
 
@@ -488,7 +514,7 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: could not apply that reply — {e}")
             return "error"
-        self._clear_halt(rec)
+        self._clear_halt(rec, readd_trigger=True)
         if verdict is True:
             self._say(key, "Meeseek ✅ Approved. Continuing.")
             return "approved"
@@ -525,7 +551,11 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: finalize failed — {e}")
             return "error"
-        self._clear_halt(rec)
+        # Do NOT re-add the trigger label on finalize: once finalized, the ticket
+        # should have neither `meeseek:needs-input` nor `meeseek`, so when the
+        # workspace is later destroyed it won't auto-retrigger until a human
+        # deliberately adds `meeseek` again.
+        self._clear_halt(rec, readd_trigger=False)
         pr = evidence.get("pr_url")
         baseline_url = self.manager.cfg.workspace_preview_url(17000) or "https://p17000.34.93.137.146.sslip.io"
         body = _finalize_summary(evidence, prefix=self.prefix, baseline_url=baseline_url, preview_url=rec.preview_url)
@@ -563,6 +593,7 @@ class JiraBridge:
         except ConsoleError as e:
             self._say(key, f"Meeseek: failed to release — {e}")
             return "error"
+        self.cleanup_ticket_labels(key)
         self._say(key, "Meeseek: the environment has been released.")
         return "released"
 
@@ -583,11 +614,7 @@ class JiraBridge:
             self._say(key, "Meeseek: this ticket's session has been reset — "
                            f"add the `{self.cfg.jira_trigger_label}` label again "
                            "to start a new one.")
-        try:
-            self.jira.set_labels(
-                key, remove=[self.cfg.jira_reset_label, self.cfg.jira_halt_label, self.cfg.jira_trigger_label])
-        except Exception:
-            log.exception("jira set_labels (reset cleanup) failed for %s", key)
+        self.cleanup_ticket_labels(key)
         return "reset"
 
     def _check_halt(self, rec) -> None:
@@ -679,6 +706,10 @@ class JiraBridge:
         recently" — and uses `session_state == "idle"` instead, deliberately
         not text-based."""
         for rec in self.manager.store.all():
+            if rec.is_terminal:
+                self.cleanup_ticket_labels(rec.ticket)
+                self.manager.store.delete(rec.ticket)
+                continue
             if (rec.stable_agent_message
                     and rec.stable_agent_message != rec.posted_agent_message):
                 cid = self._say(rec.ticket, f"💬 **Meeseek Update**\n\n{rec.stable_agent_message}")
@@ -721,9 +752,8 @@ class JiraBridge:
             log.exception("jira label search failed")
             return
         for key in keys:
-            # a task record (active OR past) means we already fired for this ticket;
-            # don't re-trigger a labelled-but-released ticket every minute.
-            if self.manager.store.get(key) is None:
+            existing = self.manager.store.get(key)
+            if existing is None or existing.is_terminal:
                 self._start(key)
 
     def _poll_resets(self) -> None:

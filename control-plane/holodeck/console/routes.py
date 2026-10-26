@@ -70,10 +70,13 @@ def build_router(manager: ConsoleManager) -> APIRouter:
         return d
 
     @r.delete("/console/tasks/{ticket}", tags=["console"])
-    def release(ticket: str):
+    def release(ticket: str, request: Request):
         try:
             rec = manager.release(ticket)
             manager.store.delete(ticket)
+            bridge = getattr(request.app.state, "jira_bridge", None)
+            if bridge and hasattr(bridge, "cleanup_ticket_labels"):
+                bridge.cleanup_ticket_labels(rec.ticket)
             return rec.as_dict()
         except ConsoleError as e:
             raise HTTPException(status_code=e.status_code, detail=str(e))
@@ -85,6 +88,11 @@ def build_router(manager: ConsoleManager) -> APIRouter:
         try:
             rec, evidence = manager.finalize(ticket)
             bridge = getattr(request.app.state, "jira_bridge", None)
+            if bridge and hasattr(bridge, "_clear_halt"):
+                try:
+                    bridge._clear_halt(rec, readd_trigger=False)
+                except Exception as e:
+                    log.debug("Failed to clear halt labels on finalize for %s: %s", ticket, e)
             if bridge and hasattr(bridge, "_say") and hasattr(bridge, "prefix"):
                 try:
                     from holodeck.console.bridge import _finalize_summary

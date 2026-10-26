@@ -14,11 +14,14 @@ import {
   Key,
   Copy,
   Check,
-  Globe
+  Globe,
+  AlertCircle
 } from "lucide-react";
 import { strikeEnvironment, verifyJiraTicket, fetchJiraOtp, JiraVerifyResult } from "../api";
 import { JiraOtpState } from "../types";
 import judgeMeeseek from "../assets/judge-meeseek.webp";
+
+const TICKET_REGEX = /^[A-Za-z]+-\d+$/;
 
 interface JudgePlaygroundProps {
   onRefresh: () => void;
@@ -35,6 +38,8 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
   const [jiraTicketKey, setJiraTicketKey] = useState<string>("FSA-65");
   const [jiraData, setJiraData] = useState<JiraVerifyResult | null>(null);
   const [loadingJira, setLoadingJira] = useState<boolean>(true);
+  const [jiraMethod1Data, setJiraMethod1Data] = useState<JiraVerifyResult | null>(null);
+  const [loadingMethod1, setLoadingMethod1] = useState<boolean>(false);
   const [isTriggering, setIsTriggering] = useState<boolean>(false);
   const [lastTriggeredTicket, setLastTriggeredTicket] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{
@@ -48,7 +53,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
   const [otpLoading, setOtpLoading] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Poll for Atlassian Verification OTP every 3 seconds
+  // Poll for Atlassian Verification OTP every 1.5 seconds
   const loadOtp = useCallback(async () => {
     try {
       const data = await fetchJiraOtp();
@@ -60,7 +65,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
 
   useEffect(() => {
     loadOtp();
-    const interval = setInterval(loadOtp, 3000);
+    const interval = setInterval(loadOtp, 1500);
     return () => clearInterval(interval);
   }, [loadOtp]);
 
@@ -70,25 +75,76 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Fetch live ticket details from Jira
-  const loadJiraDetails = async (ticket: string) => {
-    setLoadingJira(true);
-    try {
-      const data = await verifyJiraTicket(ticket);
-      setJiraData(data);
-    } catch (err) {
-      console.warn("Failed to fetch Jira ticket details:", err);
-      setJiraData(null);
-    } finally {
-      setLoadingJira(false);
-    }
-  };
-
+  // Verify Method 1 Ticket Key
   useEffect(() => {
-    if (ticketKey.trim()) {
-      loadJiraDetails(ticketKey);
+    const trimmed = jiraTicketKey.trim().toUpperCase();
+    if (!trimmed) {
+      setJiraMethod1Data(null);
+      setLoadingMethod1(false);
+      return;
     }
+    if (!TICKET_REGEX.test(trimmed)) {
+      setJiraMethod1Data({ connected: true, exists: false, ticket: trimmed });
+      setLoadingMethod1(false);
+      return;
+    }
+
+    setLoadingMethod1(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await verifyJiraTicket(trimmed);
+        setJiraMethod1Data(data);
+      } catch (err) {
+        setJiraMethod1Data({ connected: false, exists: null, ticket: trimmed });
+      } finally {
+        setLoadingMethod1(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [jiraTicketKey]);
+
+  // Fetch live ticket details from Jira for Method 2
+  useEffect(() => {
+    const trimmed = ticketKey.trim().toUpperCase();
+    if (!trimmed) {
+      setJiraData(null);
+      setLoadingJira(false);
+      return;
+    }
+    if (!TICKET_REGEX.test(trimmed)) {
+      setJiraData({ connected: true, exists: false, ticket: trimmed });
+      setLoadingJira(false);
+      return;
+    }
+
+    setLoadingJira(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await verifyJiraTicket(trimmed);
+        setJiraData(data);
+      } catch (err) {
+        console.warn("Failed to fetch Jira ticket details:", err);
+        setJiraData(null);
+      } finally {
+        setLoadingJira(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
   }, [ticketKey]);
+
+  const isMethod1Valid = Boolean(
+    jiraTicketKey.trim() &&
+    TICKET_REGEX.test(jiraTicketKey.trim()) &&
+    jiraMethod1Data?.exists === true
+  );
+
+  const isMethod2Valid = Boolean(
+    ticketKey.trim() &&
+    TICKET_REGEX.test(ticketKey.trim()) &&
+    jiraData?.exists === true
+  );
 
   // Extract repo from Jira description if formatted as `Repo: <name>`
   const extractedRepo = React.useMemo(() => {
@@ -209,24 +265,77 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
           </div>
 
           {jiraBaseUrl && (
-            <div className="flex items-center space-x-2 self-start sm:self-auto">
-              <span className="text-xs font-mono text-slate-400 hidden sm:inline">Ticket Key:</span>
-              <input
-                type="text"
-                value={jiraTicketKey}
-                onChange={(e) => setJiraTicketKey(e.target.value.toUpperCase())}
-                placeholder="FSA-65"
-                className="w-24 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-mono text-xs focus:outline-none focus:border-cyan-400"
-              />
-              <a
-                href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${(jiraTicketKey || "FSA-65").trim()}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md shadow-cyan-500/20 transition-all whitespace-nowrap"
-              >
-                <span>Open Jira ticket {jiraTicketKey.trim() || "FSA-65"}</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+            <div className="flex flex-col items-end self-start sm:self-auto gap-1">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-mono text-slate-400 hidden sm:inline">Ticket Key:</span>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={jiraTicketKey}
+                    onChange={(e) => setJiraTicketKey(e.target.value.toUpperCase())}
+                    placeholder="FSA-65"
+                    className={`w-28 px-2 py-1 rounded bg-slate-900 border text-xs font-mono focus:outline-none transition-colors ${
+                      loadingMethod1
+                        ? "border-cyan-500 text-cyan-300"
+                        : jiraTicketKey.trim() && !isMethod1Valid
+                        ? "border-rose-500/80 text-rose-300 focus:border-rose-400"
+                        : isMethod1Valid
+                        ? "border-emerald-500/80 text-emerald-300 focus:border-emerald-400"
+                        : "border-slate-700 text-cyan-300 focus:border-cyan-400"
+                    }`}
+                  />
+                  {loadingMethod1 && (
+                    <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin absolute right-2 top-2 pointer-events-none" />
+                  )}
+                </div>
+
+                {isMethod1Valid ? (
+                  <a
+                    href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${jiraTicketKey.trim()}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md shadow-cyan-500/20 transition-all whitespace-nowrap cursor-pointer"
+                  >
+                    <span>Open Jira ticket {jiraTicketKey.trim()}</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 text-slate-500 font-bold text-xs border border-slate-700 opacity-60 cursor-not-allowed whitespace-nowrap"
+                    title={
+                      !TICKET_REGEX.test(jiraTicketKey.trim())
+                        ? "Invalid ticket format. Expected e.g. FSA-65"
+                        : "Ticket does not exist on Jira Cloud"
+                    }
+                  >
+                    <span>Open Jira ticket {jiraTicketKey.trim() || "..."}</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Method 1 Validation Feedback message */}
+              {jiraTicketKey.trim() && !loadingMethod1 && (
+                <div className="text-[10px] font-mono">
+                  {!TICKET_REGEX.test(jiraTicketKey.trim()) ? (
+                    <span className="text-rose-400 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Format must be e.g. FSA-65
+                    </span>
+                  ) : jiraMethod1Data?.exists === false ? (
+                    <span className="text-rose-400 flex items-center gap-1 font-semibold">
+                      <AlertCircle className="w-3 h-3" />
+                      Ticket {jiraTicketKey.trim()} not found on Jira
+                    </span>
+                  ) : isMethod1Valid ? (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Verified on Jira Cloud
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -368,7 +477,7 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
-              Method 2 · 1-Click Console Evaluation (Zero Login Needed)
+              Method 2 · 1-Click Console Evaluation
             </span>
             <span className="text-xs text-slate-400 font-mono flex items-center space-x-1">
               <Clock className="w-3.5 h-3.5 text-slate-500" />
@@ -383,18 +492,19 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
                 <span>Syncing Jira...</span>
               </span>
-            ) : jiraData?.exists ? (
+            ) : isMethod2Valid ? (
               <span className="flex items-center space-x-1.5 text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span>Synced from Jira Cloud</span>
               </span>
             ) : (
-              <span className="flex items-center space-x-1.5 text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
-                <span>Standalone / Unsynced</span>
+              <span className="flex items-center space-x-1.5 text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30 font-semibold">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>Ticket Not Found on Jira</span>
               </span>
             )}
 
-            {jiraLink && (
+            {jiraLink && isMethod2Valid && (
               <a
                 href={jiraLink}
                 target="_blank"
@@ -411,20 +521,20 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
         {/* Ticket Headline & Metadata */}
         <div>
           <div className="flex flex-wrap items-center gap-2.5 mb-2">
-            <span className="text-lg font-mono font-bold text-cyan-400">
+            <span className={`text-lg font-mono font-bold ${isMethod2Valid ? "text-cyan-400" : "text-rose-400"}`}>
               {ticketKey}
             </span>
-            {jiraData?.issuetype && (
+            {jiraData?.issuetype && isMethod2Valid && (
               <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                 {jiraData.issuetype}
               </span>
             )}
-            {extractedRepo && (
+            {extractedRepo && isMethod2Valid && (
               <span className="text-xs font-mono px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/50">
                 Target Repo: {extractedRepo}
               </span>
             )}
-            {jiraData?.labels && jiraData.labels.length > 0 && (
+            {jiraData?.labels && isMethod2Valid && jiraData.labels.length > 0 && (
               <div className="flex items-center gap-1.5">
                 {jiraData.labels.map((l, idx) => (
                   <span key={idx} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
@@ -436,7 +546,15 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
           </div>
 
           <h3 className="text-xl font-bold text-white tracking-tight">
-            {jiraData?.summary || "Add System Health & Diagnostics Tab to Navigations"}
+            {loadingJira ? (
+              <span className="text-slate-400 text-base font-mono">Fetching ticket from Jira Cloud...</span>
+            ) : isMethod2Valid ? (
+              jiraData?.summary || "Add System Health & Diagnostics Tab to Navigations"
+            ) : (
+              <span className="text-rose-400 text-base font-mono font-normal">
+                Ticket "{ticketKey}" does not exist in Jira Cloud project
+              </span>
+            )}
           </h3>
         </div>
 
@@ -479,14 +597,29 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
           <div className="text-xs font-mono text-slate-300 bg-slate-900/80 p-3.5 rounded-lg border border-slate-800/80 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed select-text">
             {loadingJira ? (
               <div className="flex items-center space-x-2 text-slate-500 py-2">
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
                 <span>Fetching live description from Jira Cloud...</span>
+              </div>
+            ) : !TICKET_REGEX.test(ticketKey.trim()) ? (
+              <div className="flex items-center space-x-2 text-rose-400 py-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>Invalid ticket format. Expected project key and issue number (e.g. FSA-32).</span>
+              </div>
+            ) : jiraData?.exists === false ? (
+              <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  Ticket Not Found on Jira Cloud
+                </div>
+                <p className="text-[11px] text-rose-300/80">
+                  Jira returned 404: No issue found for key <strong>{ticketKey}</strong>. Meeseek requires an authoritative ticket specification before striking an ephemeral workspace.
+                </p>
               </div>
             ) : jiraData?.description ? (
               jiraData.description
             ) : (
               <span className="text-slate-500 italic">
-                No description found on Jira or ticket not yet created. Meeseek will read the latest description from Jira when struck.
+                No description found on Jira ticket {ticketKey}.
               </span>
             )}
           </div>
@@ -521,15 +654,39 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
 
         {/* Action Button & Navigation */}
         <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-2 w-full sm:w-auto">
-            <label className="text-xs font-mono text-slate-400 whitespace-nowrap">Ticket Key:</label>
-            <input
-              type="text"
-              value={ticketKey}
-              onChange={(e) => setTicketKey(e.target.value.toUpperCase())}
-              placeholder="e.g. FSA-32"
-              className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono font-bold text-white focus:outline-none focus:border-cyan-400 w-32 uppercase"
-            />
+          <div className="flex flex-col gap-1 w-full sm:w-auto">
+            <div className="flex items-center space-x-2">
+              <label className="text-xs font-mono text-slate-400 whitespace-nowrap">Ticket Key:</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={ticketKey}
+                  onChange={(e) => setTicketKey(e.target.value.toUpperCase())}
+                  placeholder="e.g. FSA-32"
+                  className={`px-3 py-1.5 rounded-lg bg-slate-900 border text-xs font-mono font-bold focus:outline-none w-36 uppercase transition-colors ${
+                    loadingJira
+                      ? "border-cyan-500 text-cyan-300"
+                      : ticketKey.trim() && !isMethod2Valid
+                      ? "border-rose-500/80 text-rose-300 focus:border-rose-400"
+                      : isMethod2Valid
+                      ? "border-emerald-500/80 text-emerald-300 focus:border-emerald-400"
+                      : "border-slate-700 text-white focus:border-cyan-400"
+                  }`}
+                />
+                {loadingJira && (
+                  <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin absolute right-2.5 top-2.5 pointer-events-none" />
+                )}
+              </div>
+            </div>
+
+            {ticketKey.trim() && !loadingJira && !isMethod2Valid && (
+              <span className="text-[10px] font-mono text-rose-400 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {!TICKET_REGEX.test(ticketKey.trim())
+                  ? "Format must be e.g. FSA-32"
+                  : `Ticket ${ticketKey.trim()} does not exist on Jira`}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
@@ -545,13 +702,27 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
 
             <button
               onClick={handleTrigger}
-              disabled={isTriggering || !ticketKey.trim()}
-              className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold text-xs flex items-center justify-center space-x-2 shadow-lg shadow-purple-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isTriggering || !isMethod2Valid || loadingJira}
+              className={`py-2.5 px-6 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition-all ${
+                isMethod2Valid && !isTriggering
+                  ? "bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white shadow-lg shadow-purple-500/20 cursor-pointer"
+                  : "bg-slate-800 text-slate-500 border border-slate-700 opacity-50 cursor-not-allowed"
+              }`}
             >
               {isTriggering ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   <span>Summoning Meeseek for {ticketKey}...</span>
+                </>
+              ) : loadingJira ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                  <span>Verifying Ticket on Jira...</span>
+                </>
+              ) : !isMethod2Valid ? (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Ticket Not Found on Jira</span>
                 </>
               ) : (
                 <>

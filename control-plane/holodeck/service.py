@@ -67,7 +67,7 @@ def _pr_body(lease: Lease, ev: Evidence, jira_base_url: str = "",
     return (
         f"{summary_block}"
         f"{sandbox_line}"
-        f"🤖 Opened by Holodeck for ticket {ticket_ref}."
+        f"🤖 Opened by Meeseek for ticket {ticket_ref}."
     )
 
 
@@ -430,9 +430,6 @@ class LeaseService:
                 guardrail_passed, getattr(evidence, "guardrail_reason", None),
                 evidence.test_output.strip() if evidence.test_output else "(no test output)")
         lease.evidence = evidence  # overwrite-on-recall (issue #6)
-        now = time.time()
-        base = max(lease.expires_at or 0.0, now)
-        lease.expires_at = base + self.cfg.default_ttl_s
         self.store.put(lease)
         self._notify_change()
         return evidence
