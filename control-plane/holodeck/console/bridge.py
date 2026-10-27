@@ -338,7 +338,20 @@ class JiraBridge:
 
     def strike(self, key: str) -> str:
         """Trigger an explicit strike from the console for a Jira ticket."""
-        return self._start(key.upper())
+        k = key.upper()
+        existing = self.manager.store.get(k)
+        if existing is not None:
+            lease = self.manager.client.get(existing.lease_id) if existing.lease_id else None
+            lease_dead = (lease is None) or (isinstance(lease, dict) and lease.get("status") in ("released", "failed"))
+            if existing.is_terminal or existing.halted or lease_dead:
+                if not existing.is_terminal and not lease_dead:
+                    try:
+                        self.manager.release(k)
+                    except Exception:
+                        pass
+                self.manager.store.delete(k)
+                self._repo_blocked.discard(k)
+        return self._start(k)
 
     def _start(self, key: str) -> str:
         existing = self.manager.store.get(key)

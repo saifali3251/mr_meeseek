@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Play, AlertCircle, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
-import { strikeEnvironment, verifyJiraTicket, JiraVerifyResult } from "../api";
+import { strikeEnvironment, triggerTask, verifyJiraTicket, JiraVerifyResult } from "../api";
 
 interface StrikeModalProps {
   isOpen: boolean;
@@ -81,7 +81,11 @@ export const StrikeModal: React.FC<StrikeModalProps> = ({
     setIsStriking(true);
     setError(null);
     try {
-      await strikeEnvironment(ticket.trim().toUpperCase(), selectedApp, 3600);
+      if (jira?.connected) {
+        await triggerTask(ticket.trim().toUpperCase(), selectedApp);
+      } else {
+        await strikeEnvironment(ticket.trim().toUpperCase(), selectedApp, 3600);
+      }
       setTicket("");
       onSuccess();
       onClose();

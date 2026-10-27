@@ -76,7 +76,7 @@ class OpsStateBroadcaster:
                 pass
 
 from holodeck.config import Config
-from holodeck.models import TICKET_RE, LeaseStatus
+from holodeck.models import TICKET_RE, LeaseStatus, holo_id
 from holodeck.providers.base import ProviderError
 from holodeck.service import LeaseConflict, LeaseService
 from holodeck.teams import (SLUG_RE, Team, TeamExistsError, TeamStore,
@@ -437,6 +437,20 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(500, "Console task manager not initialized")
 
         if bridge and not body.prompt:
+            # Clean up any orphaned bare lease (created via raw /ops/strike without a console task)
+            # so Omnigent's sandbox acquisition does not collide with a 409 LeaseConflict.
+            existing_task = manager.store.get(ticket)
+            if existing_task is None or existing_task.is_terminal:
+                bare_lease_id = holo_id(ticket)
+                bare_lease = service.store.get(bare_lease_id)
+                if bare_lease is not None and bare_lease.status in (
+                    LeaseStatus.PENDING, LeaseStatus.QUEUED, LeaseStatus.READY
+                ):
+                    try:
+                        service.release(bare_lease_id)
+                    except Exception:
+                        pass
+
             status = bridge.strike(ticket)
             if status in ("conflict",):
                 raise HTTPException(status_code=409, detail=f"A task is already active for ticket {ticket}")

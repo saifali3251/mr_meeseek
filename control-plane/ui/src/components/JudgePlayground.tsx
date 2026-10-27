@@ -167,13 +167,13 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
       if (res?.task?.status === "queued" || res?.status === "queued") {
         setStatusMessage({
           type: "queued",
-          text: `⏳ Max capacity reached! Workspace for ${cleanTicket} is QUEUED and will boot automatically when an active workspace is released.`,
+          text: `⏳ Workspace for ${cleanTicket} is queued.`,
           ticket: cleanTicket,
         });
       } else {
         setStatusMessage({
           type: "success",
-          text: `🚀 Struck isolated Copy-on-Write workspace & started autonomous Meeseek agent for ${cleanTicket}!`,
+          text: `🚀 Meeseek agent started for ${cleanTicket}.`,
           ticket: cleanTicket,
         });
       }
@@ -220,15 +220,26 @@ export const JudgePlayground: React.FC<JudgePlaygroundProps> = ({
         </p>
 
         {statusMessage && (
-          <div className={`mt-4 p-4 rounded-xl border text-xs flex items-center space-x-2 ${
+          <div className={`mt-4 p-4 rounded-xl border text-xs flex flex-wrap items-center justify-between gap-3 ${
             statusMessage.type === "success"
               ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-200"
               : statusMessage.type === "queued"
               ? "bg-amber-950/60 border-amber-500/40 text-amber-200"
               : "bg-red-950/60 border-red-500/40 text-red-200"
           }`}>
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-            <span>{statusMessage.text}</span>
+            <div className="flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <span>{statusMessage.text}</span>
+              {statusMessage.ticket && onNavigateToWorkspaces && (
+                <button
+                  onClick={() => onNavigateToWorkspaces(statusMessage.ticket!)}
+                  className="underline font-bold text-cyan-300 hover:text-cyan-200 inline-flex items-center space-x-1 ml-1 cursor-pointer"
+                >
+                  <span>Click here to view task progress</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
