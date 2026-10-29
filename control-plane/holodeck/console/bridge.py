@@ -184,6 +184,16 @@ def _finalize_summary(ev: dict, prefix: str = "#meeseek", baseline_url: Optional
         )
         if ev.get("test_output"):
             summary += f"\n\n**Failure Traceback**:\n```text\n{ev['test_output'][-1500:]}\n```"
+        if ev.get("auto_retrying"):
+            attempt = ev.get("retry_attempt", 1)
+            summary += (
+                f"\n\n🔁 **Bounded Self-Correction Loop Triggered (Attempt {attempt}/2)**: "
+                f"Meeseek Notary has automatically fed this failure traceback back to the agent inside the sandbox to self-correct."
+            )
+        else:
+            summary += (
+                f"\n\n🛠️ **To Recover**: Reply `{prefix} retry Please fix the error above` or click **Send Traceback to Agent** in the Console UI."
+            )
     else:
         summary = (
             f"🎯 **Task Completed! Meeseek Certified Delivery**\n"
@@ -325,6 +335,23 @@ class JiraBridge:
             key, f"Meeseek: unknown command `{cmd}`. "
                  f"Try `{self.prefix} run | retry <text> | finalize | extend | stop`.")
         return "unknown-command"
+
+    def strike(self, key: str) -> str:
+        """Trigger an explicit strike from the console for a Jira ticket."""
+        k = key.upper()
+        existing = self.manager.store.get(k)
+        if existing is not None:
+            lease = self.manager.client.get(existing.lease_id) if existing.lease_id else None
+            lease_dead = (lease is None) or (isinstance(lease, dict) and lease.get("status") in ("released", "failed"))
+            if existing.is_terminal or existing.halted or lease_dead:
+                if not existing.is_terminal and not lease_dead:
+                    try:
+                        self.manager.release(k)
+                    except Exception:
+                        pass
+                self.manager.store.delete(k)
+                self._repo_blocked.discard(k)
+        return self._start(k)
 
     def _start(self, key: str) -> str:
         existing = self.manager.store.get(key)

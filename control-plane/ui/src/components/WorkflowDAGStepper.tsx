@@ -11,14 +11,17 @@ import {
   Database,
   Copy,
   Check,
-  MessageSquare
+  MessageSquare,
+  RefreshCw
 } from "lucide-react";
 import { TaskRecord, Lease, WorkflowState } from "../types";
+import { reiterateTask, finalizeTask } from "../api";
 
 interface WorkflowDAGStepperProps {
   task?: TaskRecord;
   lease?: Lease;
   jiraBaseUrl?: string;
+  onRefresh?: () => void;
 }
 
 interface StageDefinition {
@@ -96,7 +99,6 @@ function getStageIndex(state?: WorkflowState, lease?: Lease, task?: TaskRecord):
   if (state === "PENDING" || state === "PROVISIONING" || state === "QUEUED" || lease?.status === "queued") return 0; // Step 1: Workspace Strike
   
   if (lease?.status === "ready") {
-    if (lease.evidence?.test_exit === 0) return 5;
     if (lease.evidence?.test_cmd || lease.evidence?.test_exit !== undefined) return 4;
     return 2; // Agent Implementation in progress
   }
@@ -168,12 +170,34 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
   task,
   lease,
   jiraBaseUrl,
+  onRefresh,
 }) => {
   // When the PR is delivered every step is done (nothing left "in progress").
-  const prDelivered = !!(lease?.pr_url || task?.evidence?.pr_url);
+  const prDelivered = !!(lease?.pr_url || lease?.evidence?.pr_url || task?.pr_url || task?.evidence?.pr_url);
   const currentIdx = prDelivered ? STAGES.length : getStageIndex(task?.workflow_state, lease, task);
   const [selectedStageIdx, setSelectedStageIdx] = useState<number | null>(null);
   const [copiedFinalize, setCopiedFinalize] = useState<boolean>(false);
+  const [isFinalizing, setIsFinalizing] = useState<boolean>(false);
+  const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [retryingFix, setRetryingFix] = useState<boolean>(false);
+  const [retryFixSent, setRetryFixSent] = useState<boolean>(false);
+  const [retryFixError, setRetryFixError] = useState<string | null>(null);
+  const [rerunningNotary, setRerunningNotary] = useState<boolean>(false);
+
+  const handleFinalizeNow = async () => {
+    setIsFinalizing(true);
+    setFinalizeError(null);
+    try {
+      const ticket = lease?.ticket || task?.ticket || "";
+      const leaseId = lease?.lease_id || task?.lease_id || "";
+      await finalizeTask(ticket, leaseId);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setFinalizeError(err.message || "Failed to finalize task");
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
 
   const activeInspectIdx = selectedStageIdx !== null ? selectedStageIdx : Math.min(currentIdx, STAGES.length - 1);
   const activeInspectStage = STAGES[activeInspectIdx];
@@ -218,6 +242,37 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
     navigator.clipboard.writeText("/meeseek finalize");
     setCopiedFinalize(true);
     setTimeout(() => setCopiedFinalize(false), 2000);
+  };
+
+  const handleSendTracebackToAgent = async () => {
+    if (!ticketKey || retryingFix) return;
+    setRetryingFix(true);
+    setRetryFixError(null);
+    const tb = lease?.evidence?.test_output || task?.evidence?.test_output || "Verification command failed.";
+    const cmd = lease?.ticket_test_cmd || lease?.evidence?.test_cmd || "test suite";
+    const feedback = `Host Notary Verification Failed when running \`${cmd}\`:\n\`\`\`\n${tb.slice(-1800)}\n\`\`\`\nPlease fix this build/test error immediately, verify \`${cmd}\` passes in the container, and report back when ready.`;
+    try {
+      await reiterateTask(ticketKey, feedback);
+      setRetryFixSent(true);
+      setTimeout(() => setRetryFixSent(false), 5000);
+    } catch (err: any) {
+      setRetryFixError(err.message || "Failed to dispatch traceback to agent");
+    } finally {
+      setRetryingFix(false);
+    }
+  };
+
+  const handleRerunNotary = async () => {
+    if (!ticketKey || rerunningNotary) return;
+    setRerunningNotary(true);
+    setRetryFixError(null);
+    try {
+      await finalizeTask(ticketKey);
+    } catch (err: any) {
+      setRetryFixError(err.message || "Failed to re-run Notary verification");
+    } finally {
+      setRerunningNotary(false);
+    }
   };
 
   return (
@@ -405,6 +460,27 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {/* Option 1: Direct 1-Click in Console */}
+                  <button
+                    onClick={handleFinalizeNow}
+                    disabled={isFinalizing}
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50"
+                    title="Run Host Notary verification and open PR directly without needing Jira login"
+                  >
+                    {isFinalizing ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Verifying & Opening PR...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Approve & Finalize PR</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Option 2: Comment on Jira */}
                   {jiraCommentUrl && (
                     <a
                       href={jiraCommentUrl}
@@ -433,6 +509,12 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
                     )}
                   </button>
                 </div>
+
+                {finalizeError && (
+                  <div className="mb-2 p-2 rounded bg-red-950/60 border border-red-500/30 text-xs text-red-300 font-mono">
+                    Finalize error: {finalizeError}
+                  </div>
+                )}
 
                 <div className="text-[11px] text-slate-400 border-t border-slate-800/80 pt-2 font-mono">
                   <span className="text-slate-300 font-medium">To request revisions instead: </span>
@@ -501,11 +583,44 @@ export const WorkflowDAGStepper: React.FC<WorkflowDAGStepperProps> = ({
 
               {/* Traceback output on failure */}
               {isFailed && (lease?.evidence?.test_output || task?.evidence?.test_output) && (
-                <div className="mt-3 p-3 rounded-lg bg-black/60 border border-red-500/30 font-mono text-xs">
-                  <div className="text-red-400 font-bold mb-1 flex items-center space-x-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Failure Traceback:</span>
+                <div className="mt-3 p-3.5 rounded-xl bg-black/60 border border-red-500/30 font-mono text-xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-red-400 font-bold flex items-center space-x-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Failure Traceback:</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSendTracebackToAgent}
+                        disabled={retryingFix || retryFixSent}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-sans font-bold text-xs shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${retryingFix ? "animate-spin" : ""}`} />
+                        <span>
+                          {retryingFix
+                            ? "Sending to Agent..."
+                            : retryFixSent
+                            ? "✓ Traceback Sent — Agent Self-Correcting!"
+                            : "🔁 Auto-Fix with Agent (Send Traceback)"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRerunNotary}
+                        disabled={rerunningNotary}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-sans font-semibold text-xs transition-all cursor-pointer"
+                      >
+                        <ShieldCheck className={`w-3.5 h-3.5 text-cyan-400 ${rerunningNotary ? "animate-pulse" : ""}`} />
+                        <span>{rerunningNotary ? "Running Notary..." : "Re-Run Notary"}</span>
+                      </button>
+                    </div>
                   </div>
+                  {retryFixError && (
+                    <div className="text-red-300 bg-red-950/60 border border-red-500/40 rounded px-2.5 py-1.5 text-[11px]">
+                      {retryFixError}
+                    </div>
+                  )}
                   <pre className="text-red-300 text-[11px] whitespace-pre-wrap overflow-x-auto max-h-44 p-2 rounded bg-slate-950 border border-slate-800">
                     {lease?.evidence?.test_output || task?.evidence?.test_output}
                   </pre>

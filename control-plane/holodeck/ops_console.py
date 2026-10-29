@@ -76,7 +76,7 @@ class OpsStateBroadcaster:
                 pass
 
 from holodeck.config import Config
-from holodeck.models import TICKET_RE, LeaseStatus
+from holodeck.models import TICKET_RE, LeaseStatus, holo_id
 from holodeck.providers.base import ProviderError
 from holodeck.service import LeaseConflict, LeaseService
 from holodeck.teams import (SLUG_RE, Team, TeamExistsError, TeamStore,
@@ -91,6 +91,19 @@ class StrikeRequest(BaseModel):
     app: Optional[str] = None
     preview: Optional[int] = None
     ttl_s: Optional[int] = None
+
+
+class TriggerTaskRequest(BaseModel):
+    ticket: str
+    app: Optional[str] = None
+    prompt: Optional[str] = None
+    target_repo: Optional[str] = None
+    base_overrides: Optional[dict[str, str]] = None
+    plan_only: bool = False
+
+
+class ReiterateTaskRequest(BaseModel):
+    feedback: str
 
 
 class ExtendBody(BaseModel):
@@ -414,6 +427,95 @@ def build_ops_router(service: LeaseService, cfg: Config,
             raise HTTPException(502, str(e))
         broadcaster.notify()
         return _lease_dict(lease, cfg)
+
+    @r.post("/ops/trigger")
+    def ops_trigger(body: TriggerTaskRequest, request: Request) -> dict:
+        ticket = body.ticket.strip().upper()
+        bridge = getattr(request.app.state, "jira_bridge", None)
+        manager = getattr(request.app.state, "console", None)
+        if not manager:
+            raise HTTPException(500, "Console task manager not initialized")
+
+        if bridge and not body.prompt:
+            # Clean up any orphaned bare lease (created via raw /ops/strike without a console task)
+            # so Omnigent's sandbox acquisition does not collide with a 409 LeaseConflict.
+            existing_task = manager.store.get(ticket)
+            if existing_task is None or existing_task.is_terminal:
+                bare_lease_id = holo_id(ticket)
+                bare_lease = service.store.get(bare_lease_id)
+                if bare_lease is not None and bare_lease.status in (
+                    LeaseStatus.PENDING, LeaseStatus.QUEUED, LeaseStatus.READY
+                ):
+                    try:
+                        service.release(bare_lease_id)
+                    except Exception:
+                        pass
+
+            status = bridge.strike(ticket)
+            if status in ("conflict",):
+                raise HTTPException(status_code=409, detail=f"A task is already active for ticket {ticket}")
+            if status in ("invalid-target-repo",):
+                raise HTTPException(status_code=400, detail=f"Ticket {ticket} description must specify 'Repo: <name>' for composite app")
+            if status in ("error",):
+                raise HTTPException(status_code=500, detail=f"Failed to start task for ticket {ticket}")
+            rec = manager.store.get(ticket)
+            broadcaster.notify()
+            if rec:
+                return rec.as_dict()
+            return {"status": status, "ticket": ticket}
+
+        try:
+            rec = manager.trigger(
+                ticket, body.app,
+                prompt=body.prompt,
+                target_repo=body.target_repo,
+                base_overrides=body.base_overrides,
+                plan_only=body.plan_only,
+            )
+            broadcaster.notify()
+            return rec.as_dict()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @r.post("/ops/tasks/{ticket}/finalize")
+    def ops_task_finalize(ticket: str, request: Request) -> dict:
+        ticket = ticket.strip().upper()
+        bridge = getattr(request.app.state, "jira_bridge", None)
+        manager = getattr(request.app.state, "console", None)
+        if not manager:
+            raise HTTPException(500, "Console task manager not initialized")
+
+        if bridge and hasattr(bridge, "_finalize"):
+            status = bridge._finalize(ticket)
+            broadcaster.notify()
+            if status == "error":
+                raise HTTPException(status_code=500, detail=f"Failed to finalize task {ticket}")
+            rec = manager.store.get(ticket)
+            if rec:
+                return rec.as_dict()
+            return {"status": status, "ticket": ticket}
+
+        try:
+            rec, evidence = manager.finalize(ticket)
+            broadcaster.notify()
+            d = rec.as_dict()
+            d["evidence"] = evidence
+            return d
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @r.post("/ops/tasks/{ticket}/reiterate")
+    def ops_task_reiterate(ticket: str, body: ReiterateTaskRequest, request: Request) -> dict:
+        ticket = ticket.strip().upper()
+        manager = getattr(request.app.state, "console", None)
+        if not manager:
+            raise HTTPException(500, "Console task manager not initialized")
+        try:
+            rec = manager.reiterate(ticket, body.feedback)
+            broadcaster.notify()
+            return rec.as_dict()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     @r.get("/ops/jira/verify/{ticket}")
     def ops_jira_verify(ticket: str, request: Request) -> dict:
