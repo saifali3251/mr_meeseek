@@ -33,8 +33,16 @@ id="$(holo_id "$TICKET")"; proj="ws-$id"; wsdir="$HOLO_WORKSPACES/$id"
 [[ -e "$wsdir" ]] && die "workspace '$id' already exists at $wsdir — destroy it first"
 
 log "[$proj] app=$HOLO_APP  CoW-cloning golden -> workspace..."
+if [[ -d "$HOLO_GOLDEN/test_frontend" && ! -e "$HOLO_GOLDEN/test_frontend/node_modules/.bin/tsc" ]]; then
+  log "[$proj] populating test_frontend/node_modules in golden image (one-time)..."
+  docker run --rm -v "$HOLO_GOLDEN/test_frontend:/app" -w /app node:22-slim npm install --silent >/dev/null 2>&1 \
+    || warn "[$proj] could not pre-populate test_frontend/node_modules in golden"
+fi
 mkdir -p "$HOLO_WORKSPACES"
 holo_cow_clone "$HOLO_GOLDEN" "$wsdir"
+if [[ -f "$HOLO_DIR/overrides/${HOLO_APP}.compose.yaml" ]]; then
+  cp "$HOLO_DIR/overrides/${HOLO_APP}.compose.yaml" "$wsdir/$HOLO_COMPOSE_FILE"
+fi
 
 # Which directory actually gets the branch cut: a per-lease HOLO_TARGET_REPO (set by
 # the control plane at acquire time, validated against the manifest's

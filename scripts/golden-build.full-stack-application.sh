@@ -64,9 +64,11 @@ else
   done
 fi
 
-if [[ -d "$HOLO_SRC/test_frontend" && ! -d "$HOLO_SRC/test_frontend/node_modules" ]]; then
+if [[ -d "$HOLO_SRC/test_frontend" && ! -e "$HOLO_SRC/test_frontend/node_modules/.bin/tsc" ]]; then
   log "pre-installing node_modules in test_frontend..."
-  (cd "$HOLO_SRC/test_frontend" && npm install --silent) || warn "npm install in test_frontend failed (offline?)"
+  (cd "$HOLO_SRC/test_frontend" && npm install --silent) \
+    || docker run --rm -v "$HOLO_SRC/test_frontend:/app" -w /app node:22-slim npm install --silent \
+    || warn "npm install in test_frontend failed (offline?)"
 fi
 
 # ---- 2. stage the (self-contained) compose override -----------------------

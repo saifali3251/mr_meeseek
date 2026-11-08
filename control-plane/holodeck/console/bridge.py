@@ -78,13 +78,12 @@ EXECUTION DIRECTIVE (TWO-TIER HIERARCHY):
 1. Preferred: If a coding sub-agent CLI (e.g. agy, gemini, codex, cursor-agent, or claude) is installed in this machine's PATH, you may dispatch the implementation plan to it.
 2. Fallback: If no external coding CLI is present, you are FULLY AUTHORIZED to author, edit, and implement all source code directly using your available file and shell tools. Do NOT halt or ask the reporter for permission to write code or install CLIs — proceed immediately to direct implementation.
 
-Do not push a branch or open a pull request yourself, even a draft — that step \
-belongs to Meeseek, not you. You MUST commit your work on the branch that's already \
-checked out in this session (`git add -A && git commit -m "feat: implement changes for {key}"`) — do not create or switch to a new branch, even one \
-named after the ticket; Meeseek's own verification diffs the branch that was \
-already prepared for you, not whichever one you happen to leave checked out. \
-Once your change is implemented, committed, and you've run the \
-targeted test in this session to self-verify it, stop and post a summary of what \
+Do not run `git commit`, `git push`, `git checkout`, or open a pull request yourself — \
+all git staging, committing, branch management, and PR creation belong exclusively to \
+Meeseek's Host Notary (`finalize()`), not you. Leave your modified files in the working \
+tree on the branch that's already checked out in this session. \
+Once your code change is implemented and you've run the \
+targeted build/test command in this session to self-verify it, stop and post a summary of what \
 changed, referencing the Jira key `{key}`, ending with this exact line so the \
 reporter knows precisely what to do next:
 
@@ -100,15 +99,15 @@ blocks their decision. \
 CRITICAL OPERATIONAL RULES:
 1. Strict Execution Order:
    a. Inspect existing files, components, and types first before editing.
-   b. Implement code modifications.
-   c. Run the verification/build command synchronously (`npm run build` or targeted test). Fix any compile or test errors until Exit 0.
-   d. Do NOT run dependency install commands (e.g. do NOT run `npm install`, `pip install`). All required packages and node_modules are already pre-installed.
-   e. Do NOT run `eslint`, `npm run lint`, or `prettier` (even if the ticket's acceptance criteria mentions `npm run lint`, because `package.json` does not have a `lint` script). For frontend tickets, verify exclusively via `npx --yes tsc -b && npm run build`.
+   b. Implement code modifications in the working tree.
+   c. Run the verification/build command synchronously (`npm run build` for frontend, `pytest` for backend) with `WaitMsBeforeAsync: 10000`. Fix any compile or test errors until Exit 0.
+   d. Do NOT run dependency install commands (e.g. do NOT run `npm install`, `pip install`). All required packages and `node_modules` are already pre-installed.
+   e. Do NOT run `eslint`, `npm run lint`, or `prettier`. For frontend tickets, verify exclusively via `npm run build`.
    f. Do NOT create or modify repository configuration files (such as `eslint.config.js`, `tsconfig.json`, `vite.config.ts`) unless explicitly required by the ticket description.
-   g. Stage and commit all changes (`git add -A && git commit -m "feat: implement changes for {key}"`).
-   h. ONLY AFTER steps a-g have successfully finished and committed, output your summary ending with the handoff line below. NEVER output the handoff line while still editing, compiling, or fixing errors.
-2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action. You MUST NOT emit ANY tool calls in that turn or after. The turn must conclude as pure text.
-3. Non-interactive Shell: Always run non-interactive commands. If using npx, always pass `--yes` (e.g. `npx --yes tsc -b`). Never run commands that prompt for interactive input (`[y/N]`).
+   g. Do NOT run `git add`, `git commit`, `git branch`, or `git push`. Meeseek commits and pushes changes host-side during finalization.
+   h. ONLY AFTER steps a-c have finished with Exit 0, output your summary ending with the handoff line once. NEVER output the handoff line while a command is still running or before verification passes.
+2. Immediate Terminal Stop: Outputting "Your action: reply `{prefix} finalize`" MUST be your absolute final action, emitted at most ONCE. You MUST NOT emit ANY tool calls in that turn or after.
+3. Synchronous Non-Interactive Shell: Whenever calling `run_command`, ALWAYS set `WaitMsBeforeAsync: 10000` so commands execute synchronously without backgrounding. Never run interactive commands (`[y/N]`).
 4. File Tools & Absolute Paths ONLY: Every file tool (`view_file`, `replace_file_content`, `write_to_file`) strictly requires a full ABSOLUTE path starting with `/` (never a relative path like `src/App.tsx` or `AGENT_RULES.md`). If you do not know the absolute working directory path yet, run `pwd` via `run_command` first, then prepend that absolute path to every file path. When calling `write_to_file`, always supply `Overwrite: true` (or `false`).
 
 --- Ticket {key} ---
@@ -204,6 +203,8 @@ def _finalize_summary(ev: dict, prefix: str = "#meeseek", baseline_url: Optional
             f"• **Database Integrity**: `✓ {seed}`\n"
             f"• **Git Diff**: `{diff}`"
         )
+        if ev.get("pr_url"):
+            summary += f"\n• **Certified Pull Request**: [GitHub PR ↗]({ev['pr_url']})"
         if preview_url:
             summary += f"\n• **Live Sandbox Preview**: [Sandbox Preview ↗]({preview_url})"
         if baseline_url:
@@ -782,6 +783,16 @@ class JiraBridge:
             existing = self.manager.store.get(key)
             if existing is None or existing.is_terminal:
                 self._start(key)
+            else:
+                lease = self.manager.client.get(existing.lease_id) if existing.lease_id else None
+                lease_dead = (lease is None) or (isinstance(lease, dict) and lease.get("status") in ("released", "failed"))
+                if lease_dead or existing.session_state == "failed":
+                    self.strike(key)
+                elif existing.halted:
+                    if existing.plan_only:
+                        self._start(key)
+                    else:
+                        self.strike(key)
 
     def _poll_resets(self) -> None:
         """Same polling shape as _poll_triggers, for the destroy/reset label.

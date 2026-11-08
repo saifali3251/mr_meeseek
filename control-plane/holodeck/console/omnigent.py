@@ -338,7 +338,20 @@ class HttpOmnigentClient:
         return sid
 
     @staticmethod
-    def _item_text(item: dict) -> str:
+    def _clean_assistant_text(raw: str) -> str:
+        """Deduplicate repeated handoff blocks when a harness concatenates
+        multiple background-task wakeup steps into a single assistant item."""
+        if not raw:
+            return ""
+        marker = "from that evidence."
+        if raw.count(marker) > 1:
+            segments = [s.lstrip() for s in raw.split(marker) if s.strip()]
+            if segments:
+                return f"{segments[-1]}{marker}"
+        return raw.strip()
+
+    @classmethod
+    def _item_text(cls, item: dict) -> str:
         """Flatten a conversation item's content parts into plain text.
         VERIFIED against a live session (agent "polly", plain AP session, no
         external_session_id) on 2026-08-20 — `role`/`content` are nested under
@@ -355,8 +368,12 @@ class HttpOmnigentClient:
         data = item.get("data") or {}
         parts = data.get("content") or []
         if isinstance(parts, str):
-            return parts
-        return "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+            raw = parts.strip()
+        else:
+            raw = "".join(p.get("text", "") for p in parts if isinstance(p, dict)).strip()
+        if data.get("role") == "assistant":
+            return cls._clean_assistant_text(raw)
+        return raw
 
     @classmethod
     def _latest_assistant_message(cls, items: list) -> Optional[str]:

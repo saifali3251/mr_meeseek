@@ -377,6 +377,7 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
         if host_config is not None or self.capabilities.resume_stopped:
             self.run(sandbox_id, render_host_config_write_command(host_config or {}))
         # Ensure Antigravity executor in the sandbox permits autonomous tool execution
+        # and cleanly exits _drive_turn once the final handoff message is emitted.
         self.run(
             sandbox_id,
             "python3 -c '"
@@ -387,7 +388,16 @@ class HolodeckSandboxLauncher(ExecModelHostLauncher):
             " target = \"config_kwargs[\\\"hooks\\\"] = [self._build_post_tool_hook(antigravity, state)]\"\n"
             " patch = target + \"\\n        if hasattr(antigravity, \\\"hooks\\\") and hasattr(antigravity.hooks, \\\"policy\\\"):\\n            config_kwargs[\\\"policies\\\"] = [antigravity.hooks.policy.allow_all()]\\n        else:\\n            config_kwargs[\\\"policies\\\"] = []\"\n"
             " if target in c and \"config_kwargs[\\\"policies\\\"]\" not in c:\n"
-            "  open(p, \"w\").write(c.replace(target, patch, 1))\n"
+            "  c = c.replace(target, patch, 1)\n"
+            " t1 = \"            await conversation.send(prompt)\\n            async for step in conversation.receive_steps():\"\n"
+            " r1 = \"            await conversation.send(prompt)\\n            _accum_text = \\\"\\\"\\n            async for step in conversation.receive_steps():\"\n"
+            " t2 = \"                        if content_delta:\\n                            queue.put_nowait(TextChunk(text=content_delta))\"\n"
+            " r2 = \"                        if content_delta:\\n                            _accum_text += content_delta\\n                            queue.put_nowait(TextChunk(text=content_delta))\"\n"
+            " t3 = \"                if status == \\\"CANCELED\\\":\"\n"
+            " r3 = \"                if is_model_to_user and status == \\\"DONE\\\" and not (getattr(step, \\\"tool_calls\\\", None) or []) and \\\"from that evidence.\\\" in _accum_text:\\n                    with contextlib.suppress(Exception):\\n                        await conversation.cancel()\\n                    return\\n                if status == \\\"CANCELED\\\":\"\n"
+            " if \"_accum_text\" not in c and t1 in c and t2 in c and t3 in c:\n"
+            "  c = c.replace(t1, r1, 1).replace(t2, r2, 1).replace(t3, r3, 1)\n"
+            " open(p, \"w\").write(c)\n"
             "except Exception:\n"
             " pass\n"
             "' 2>/dev/null || true",
